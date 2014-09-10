@@ -145,7 +145,7 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 	 * @return
 	 * @throws Exception
 	 */
-	public synchronized AttributePermutation call() throws Exception {
+	public AttributePermutation call() throws Exception {
 		long start = System.nanoTime();
 		try {
 			MBeanServerConnection mbs = connection.getServerConnection();

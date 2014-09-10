@@ -167,6 +167,10 @@ public class Connection implements NotificationListener {
 			} else {
 				connectBackoff *= connectBackoff / (connectBackoff / 2);
 			}
+			// Clamp the backoff to 5 minutes.
+			if (connectBackoff > 300) {
+				connectBackoff = 300;
+			}
 
 			// If we don't have a serverConnector, try to set one up and subscribe a listener.
 			if (serverConnector == null) {
