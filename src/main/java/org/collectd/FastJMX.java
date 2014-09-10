@@ -186,7 +186,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 				}
 			} else if ("connection".equalsIgnoreCase(pluginChild.getKey())) {
 				String hostName = getConfigString(pluginChild);
-				Boolean hostnamePort = null;
+				boolean hostnamePort = false;
 				String rawUrl = null;
 				JMXServiceURL serviceURL = null;
 				String username = null;
@@ -237,7 +237,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 							}
 						}
 
-						if (hostnamePort != null && hostnamePort.booleanValue()) {
+						if (hostnamePort) {
 							hostName = hostName + "@" + port;
 						}
 
@@ -514,12 +514,12 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 
 		values = ci.getValues();
 		if (values.size() != 1) {
-			return null;
+			return false;
 		}
 
 		v = values.get(0);
 		if (v.getType() != OConfigValue.OCONFIG_TYPE_BOOLEAN) {
-			return null;
+			return false;
 		}
 
 		return (new Boolean(v.getBoolean()));
