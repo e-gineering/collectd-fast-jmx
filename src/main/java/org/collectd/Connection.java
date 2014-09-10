@@ -1,3 +1,5 @@
+package org.collectd;
+
 import org.collectd.api.Collectd;
 
 import javax.management.InstanceNotFoundException;
@@ -58,7 +60,7 @@ public class Connection implements NotificationListener {
 	}
 
 	public void connect() {
-		Collectd.logDebug("FastJMX plugin: connect() for " + rawUrl);
+		Collectd.logDebug("FastJMX plugin:  connect() for " + rawUrl);
 		ConnectTask task = new ConnectTask(0);
 		connectTimer.schedule(task, task.getDelay());
 	}
@@ -67,20 +69,20 @@ public class Connection implements NotificationListener {
 	 * Removes all NofiticationListeners and closes the connections.
 	 */
 	public void close() {
-		Collectd.logDebug("FastJMX plugin: Closing: " + rawUrl);
+		Collectd.logDebug("FastJMX plugin:  Closing: " + rawUrl);
 		if (serverConnector != null) {
-			Collectd.logDebug("FastJMX plugin: Removing connection listeners for " + rawUrl);
+			Collectd.logDebug("FastJMX plugin:  Removing connection listeners for " + rawUrl);
 			try {
 				serverConnector.removeConnectionNotificationListener(notificationListener);
 				serverConnector.removeConnectionNotificationListener(this);
 			} catch (ListenerNotFoundException lnfe) {
-				Collectd.logDebug("FastJMX plugin: Couldn't unregister ourselves from our JMXConnector.");
+				Collectd.logDebug("FastJMX plugin:  Couldn't unregister ourselves from our JMXConnector.");
 			}
 
 			try {
 				serverConnector.close();
 			} catch (IOException ioe) {
-				Collectd.logWarning("FastJMX plugin: Exception closing JMXConnection: " + ioe.getMessage());
+				Collectd.logWarning("FastJMX plugin:  Exception closing JMXConnection: " + ioe.getMessage());
 			}
 		}
 
@@ -93,7 +95,7 @@ public class Connection implements NotificationListener {
 		if (serverConnector == null && serverConnection == null) {
 			throw new IOException("Not Connected to: " + rawUrl);
 		} else if (serverConnector != null && serverConnection == null) {
-			Collectd.logDebug("FastJMX plugin: Returning serverConnector.getMbeanServerConnection(). POSSIBLE RACE.");
+			Collectd.logDebug("FastJMX plugin:  Returning serverConnector.getMbeanServerConnection(). POSSIBLE RACE.");
 			return serverConnector.getMBeanServerConnection();
 		}
 		return serverConnection;
@@ -115,14 +117,14 @@ public class Connection implements NotificationListener {
 					serverConnection = serverConnector.getMBeanServerConnection();
 					serverConnection.addNotificationListener(MBeanServerDelegate.DELEGATE_NAME, notificationListener, null, this);
 				} catch (IOException ioe) {
-					Collectd.logWarning("FastJMX plugin: Could not get mbeanServerConnection to: " + rawUrl + " exception message: " + ioe.getMessage());
+					Collectd.logWarning("FastJMX plugin:  Could not get mbeanServerConnection to: " + rawUrl + " exception message: " + ioe.getMessage());
 					close();
 					ConnectTask backoffConnect = new ConnectTask(0);
 					connectTimer.schedule(backoffConnect, backoffConnect.getDelay());
 				} catch (InstanceNotFoundException infe) {
-					Collectd.logNotice("FastJMX plugin: Could not register MBeanServerDelegate. I will not be able to detect newly deployed or undeployed beans at: " + rawUrl);
+					Collectd.logNotice("FastJMX plugin:  Could not register MBeanServerDelegate. I will not be able to detect newly deployed or undeployed beans at: " + rawUrl);
 				}
-				Collectd.logDebug("FastJMX plugin: OPENED");
+				Collectd.logDebug("FastJMX plugin:  OPENED");
 			}
 		}
 	}
@@ -163,7 +165,7 @@ public class Connection implements NotificationListener {
 		@Override
 		public void run() {
 			this.cancel();
-			Collectd.logDebug("FastJMX plugin: ConnectTask started for: " + rawUrl + " delayed " + connectBackoff);
+			Collectd.logDebug("FastJMX plugin:  ConnectTask started for: " + rawUrl + " delayed " + connectBackoff);
 
 			if (connectBackoff == 0) {
 				connectBackoff = 5;
@@ -185,9 +187,9 @@ public class Connection implements NotificationListener {
 					serverConnector.addConnectionNotificationListener(Connection.this, null, null);
 					serverConnector.addConnectionNotificationListener(notificationListener, null, Connection.this);
 					serverConnector.connect();
-					Collectd.logDebug("FastJMX plugin: ServerConnector connect() invoked.");
+					Collectd.logDebug("FastJMX plugin:  ServerConnector connect() invoked.");
 				} catch (IOException ioe) {
-					Collectd.logWarning("FastJMX plugin: Could not connect to : " + rawUrl + " exception message: " + ioe.getMessage());
+					Collectd.logWarning("FastJMX plugin:  Could not connect to : " + rawUrl + " exception message: " + ioe.getMessage());
 					close();
 					ConnectTask backoffConnect = new ConnectTask(connectBackoff);
 					connectTimer.schedule(backoffConnect, backoffConnect.getDelay());

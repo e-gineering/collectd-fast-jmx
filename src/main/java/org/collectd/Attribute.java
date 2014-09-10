@@ -1,3 +1,5 @@
+package org.collectd;
+
 import org.collectd.api.DataSet;
 
 import javax.management.ObjectName;
