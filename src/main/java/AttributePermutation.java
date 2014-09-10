@@ -213,7 +213,6 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 				Collectd.dispatchValues(vl);
 			}
 		} catch (IOException ioe) {
-			connection.close();
 			throw ioe;
 		} catch (Exception ex) {
 			throw ex;

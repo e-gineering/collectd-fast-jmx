@@ -50,7 +50,6 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	private long previousStart = 0;
 
 	private ThreadPoolExecutor mbeanExecutor;
-	private ThreadPoolExecutor reconnectExecutor;
 
 	private List<Attribute> attributes = Collections.synchronizedList(new ArrayList<Attribute>());
 	private HashSet<Connection> connections = new HashSet<Connection>();
@@ -287,28 +286,10 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 		mbeanExecutor.allowCoreThreadTimeOut(true);
 		mbeanExecutor.prestartAllCoreThreads();
 
-		final ThreadGroup reconnectors = new ThreadGroup(fastJMXThreads, "Reconnectors");
-
-		reconnectExecutor =
-				new ThreadPoolExecutor(0, Math.max(1, connections.size()), 30, TimeUnit.SECONDS, new ArrayBlockingQueue<Runnable>(Math.max(1, connections.size() / 2)), new ThreadFactory() {
-					public Thread newThread(Runnable r) {
-						Thread t = new Thread(reconnectors, r, "reconnector-" + reconnectCount++);
-						t.setDaemon(reconnectors.isDaemon());
-						t.setPriority(Thread.MIN_PRIORITY);
-						return t;
-					}
-				});
-		reconnectExecutor.allowCoreThreadTimeOut(true);
-
-
 		// Open connections.
 		for (Connection connectionEntry : connections) {
 			Collectd.logInfo("FastJMX plugin: Initiating Connection to: " + connectionEntry.rawUrl);
-			try {
-				connectionEntry.connect();
-			} catch (IOException ioe) {
-				reconnectExecutor.execute(new Reconnector(connectionEntry));
-			}
+			connectionEntry.connect();
 		}
 
 		return 0;
@@ -368,9 +349,6 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 			} catch (ExecutionException ex) {
 				failed++;
 				Collectd.logError("FastJMX plugin: Failed " + ex.getCause());
-				if (ex.getCause() instanceof BrokenConnectionException) {
-					reconnectExecutor.execute(new Reconnector(((BrokenConnectionException)ex.getCause()).getBrokenConnection()));
-				}
 			} catch (CancellationException ce) {
 				cancelled++;
 			} catch (InterruptedException ie) {
@@ -440,7 +418,18 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 			} else if (notification.getType().equals(JMXConnectionNotification.CLOSED) ||
 					           notification.getType().equals(JMXConnectionNotification.FAILED)) {
 				Collectd.logDebug("FastJMX plugin: Removing collectable permutations for " + connection.rawUrl);
-				removeCollectables(connection);
+				// Remove the AttributePermutation objects appropriate for this Connection.
+				ArrayList<AttributePermutation> toRemove = new ArrayList<AttributePermutation>();
+				synchronized (collectablePermutations) {
+					for (AttributePermutation permutation : collectablePermutations) {
+						if (permutation.getConnection().equals(connection)) {
+							toRemove.add(permutation);
+						}
+					}
+					collectablePermutations.removeAll(toRemove);
+				}
+
+				connection.connect();
 			}
 		} else if (notification instanceof MBeanServerNotification) {
 			Connection connection = (Connection) handback;
@@ -468,22 +457,6 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 				}
 			}
 		}
-	}
-
-	private void removeCollectables(Connection connection) {
-		// Remove the AttributePermutation objects appropriate for this Connection.
-		ArrayList<AttributePermutation> toRemove = new ArrayList<AttributePermutation>();
-		synchronized (collectablePermutations) {
-			for (AttributePermutation permutation : collectablePermutations) {
-				if (permutation.getConnection().equals(connection)) {
-					toRemove.add(permutation);
-				}
-			}
-			collectablePermutations.removeAll(toRemove);
-		}
-
-		// Schedule a reconnect.
-		reconnectExecutor.execute(new Reconnector(connection));
 	}
 
 	/**
@@ -532,22 +505,5 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 		}
 
 		return (new Boolean(v.getBoolean()));
-	}
-
-	private class Reconnector implements Runnable {
-		Connection connection;
-
-		Reconnector(final Connection connection) {
-			this.connection = connection;
-		}
-
-		public void run() {
-			try {
-				connection.connect();
-			} catch (IOException ioe) {
-				// Schedule again in the future.
-				reconnectExecutor.execute(new Reconnector(connection));
-			}
-		}
 	}
 }
