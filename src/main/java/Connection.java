@@ -4,6 +4,7 @@ import javax.management.InstanceNotFoundException;
 import javax.management.ListenerNotFoundException;
 import javax.management.MBeanServerConnection;
 import javax.management.MBeanServerDelegate;
+import javax.management.MBeanServerNotification;
 import javax.management.Notification;
 import javax.management.NotificationListener;
 import javax.management.remote.JMXConnectionNotification;
@@ -53,53 +54,57 @@ public class Connection implements NotificationListener {
 		return serverConnector != null && serverConnection != null;
 	}
 
-	public void connect() {
+	public void connect() throws IOException {
 		if (!isConnected()) {
-			if (connectBackoff == 0) {
-				connectBackoff = 5;
-			} else {
-				Collectd.logNotice("FastJMX plugin: Attempting reconnect to: " + rawUrl + " in: " + connectBackoff + " seconds.");
-				try {
-					TimeUnit.SECONDS.sleep(connectBackoff);
-					connectBackoff *= connectBackoff / (connectBackoff / 2);
-				} catch (InterruptedException ie) {
-					Collectd.logNotice("FastJMX plugin: Reconnect to: " + rawUrl + " INTERRUPTED.");
-					return;
+			synchronized (this) {
+				if (connectBackoff == 0) {
+					connectBackoff = 5;
+				} else {
+					Collectd.logNotice("FastJMX plugin: Attempting reconnect to: " + rawUrl + " in: " + connectBackoff + " seconds.");
+					try {
+						TimeUnit.SECONDS.sleep(connectBackoff);
+						connectBackoff *= connectBackoff / (connectBackoff / 2);
+					} catch (InterruptedException ie) {
+						Collectd.logNotice("FastJMX plugin: Reconnect to: " + rawUrl + " INTERRUPTED.");
+						return;
+					}
 				}
-			}
 
-			Map environment = new HashMap();
+				Map environment = new HashMap();
 
-			if (password != null && username != null) {
-				environment.put(JMXConnector.CREDENTIALS, new String[]{username, password});
+				if (password != null && username != null) {
+					environment.put(JMXConnector.CREDENTIALS, new String[]{username, password});
 
-			}
-			environment.put(JMXConnectorFactory.PROTOCOL_PROVIDER_CLASS_LOADER, this.getClass().getClassLoader());
-
-			// If we don't have a serverConnector, try to set one up and subscribe a listener.
-			if (serverConnector == null) {
-				try {
-					serverConnector = JMXConnectorFactory.newJMXConnector(serviceURL, environment);
-					serverConnector.addConnectionNotificationListener(notificationListener, null, this);
-					serverConnector.addConnectionNotificationListener(this, null, null);
-					serverConnector.connect();
-				} catch (IOException ioe) {
-					serverConnector = null;
-					serverConnection = null;
-					Collectd.logWarning("FastJMX plugin: Could not connect to : " + rawUrl + " exception message: " + ioe.getMessage());
 				}
-			}
+				environment.put(JMXConnectorFactory.PROTOCOL_PROVIDER_CLASS_LOADER, this.getClass().getClassLoader());
 
-			if (serverConnection == null && serverConnector != null) {
-				try {
-					serverConnection = serverConnector.getMBeanServerConnection();
-					serverConnection.addNotificationListener(MBeanServerDelegate.DELEGATE_NAME, notificationListener, null, this);
-					connectBackoff = 0;
-				} catch (IOException ioe) {
-					Collectd.logWarning("FastJMX plugin: Could not get mbeanServerConnection to: " + rawUrl + " exception message: " + ioe.getMessage());
-					close();
-				} catch (InstanceNotFoundException infe) {
-					Collectd.logNotice("FastJMX plugin: Could not register MBeanServerDelegate. I will not be able to detect newly deployed or undeployed beans at: " + rawUrl);
+				// If we don't have a serverConnector, try to set one up and subscribe a listener.
+				if (serverConnector == null) {
+					try {
+						serverConnector = JMXConnectorFactory.newJMXConnector(serviceURL, environment);
+						serverConnector.addConnectionNotificationListener(notificationListener, null, this);
+						serverConnector.addConnectionNotificationListener(this, null, null);
+						serverConnector.connect();
+					} catch (IOException ioe) {
+						serverConnector = null;
+						serverConnection = null;
+
+						Collectd.logWarning("FastJMX plugin: Could not connect to : " + rawUrl + " exception message: " + ioe.getMessage());
+						throw ioe;
+					}
+				}
+
+				if (serverConnection == null && serverConnector != null) {
+					try {
+						MBeanServerConnection connection = getServerConnection();
+						connection.addNotificationListener(MBeanServerDelegate.DELEGATE_NAME, notificationListener, null, this);
+					} catch (IOException ioe) {
+						Collectd.logWarning("FastJMX plugin: Could not get mbeanServerConnection to: " + rawUrl + " exception message: " + ioe.getMessage());
+						close();
+						throw ioe;
+					} catch (InstanceNotFoundException infe) {
+						Collectd.logNotice("FastJMX plugin: Could not register MBeanServerDelegate. I will not be able to detect newly deployed or undeployed beans at: " + rawUrl);
+					}
 				}
 			}
 		}
@@ -110,9 +115,9 @@ public class Connection implements NotificationListener {
 	 * Removes all NofiticationListeners and closes the connections.
 	 */
 	public void close() {
-		Collectd.logInfo("FastJMX plugin: Closing " + rawUrl);
+		Collectd.logDebug("FastJMX plugin: Closing: " + rawUrl);
 		if (serverConnector != null) {
-			Collectd.logInfo("FastJMX plugin: Removing connection listeners for " + rawUrl);
+			Collectd.logDebug("FastJMX plugin: Removing connection listeners for " + rawUrl);
 			try {
 				serverConnector.removeConnectionNotificationListener(notificationListener);
 				serverConnector.removeConnectionNotificationListener(this);
@@ -132,8 +137,22 @@ public class Connection implements NotificationListener {
 	}
 
 
-	public MBeanServerConnection getServerConnection() {
-		connect();
+	public MBeanServerConnection getServerConnection() throws BrokenConnectionException {
+		if (serverConnector == null && serverConnection == null) {
+			throw new BrokenConnectionException(this, "Broken Connection to: " + rawUrl);
+		} else if (serverConnector != null && serverConnection == null) {
+			synchronized (this) {
+				if (serverConnection == null) { // Another thread may have set this before we got the lock.
+					try {
+						serverConnection = serverConnector.getMBeanServerConnection();
+						connectBackoff = 0;
+					} catch (IOException ioe) {
+						close();
+						throw new BrokenConnectionException(this, "Broken Connection to: " + rawUrl, ioe);
+					}
+				}
+			}
+		}
 		return serverConnection;
 	}
 

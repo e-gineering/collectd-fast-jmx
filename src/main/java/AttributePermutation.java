@@ -4,9 +4,11 @@ import org.collectd.api.PluginData;
 import org.collectd.api.ValueList;
 
 import javax.management.AttributeNotFoundException;
+import javax.management.MBeanServerConnection;
 import javax.management.ObjectName;
 import javax.management.openmbean.CompositeData;
 import javax.management.openmbean.OpenType;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
@@ -140,6 +142,8 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 	public synchronized AttributePermutation call() throws Exception {
 		long start = System.nanoTime();
 		try {
+			MBeanServerConnection mbs = connection.getServerConnection();
+
 			List<Object> values = new ArrayList<Object>(8);
 			for (Map.Entry<String, List<String>> attributePath : attribute.attributes.entrySet()) {
 				Object value = null;
@@ -152,9 +156,9 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 						path.append(node);
 
 						try {
-							value = connection.getServerConnection().getAttribute(objectName, node);
+							value = mbs.getAttribute(objectName, node);
 						} catch (AttributeNotFoundException anfe) {
-							value = connection.getServerConnection().invoke(objectName, node, null, null);
+							value = mbs.invoke(objectName, node, null, null);
 						}
 					} else {
 						path.append(".").append(node);
@@ -179,7 +183,7 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 				values.add(value);
 			}
 
-			// If we're expecting CompositeData objects to be broken up like a table, handle it.
+			// If we're expecting CompositeData objects to be brokenConnection up like a table, handle it.
 			if (attribute.composite) {
 				List<CompositeData> cdList = new ArrayList<CompositeData>();
 				Set<String> keys = null;
@@ -208,6 +212,9 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 				Collectd.logDebug("FastJMX plugin: dispatch " + vl);
 				Collectd.dispatchValues(vl);
 			}
+		} catch (IOException ioe) {
+			connection.close();
+			throw ioe;
 		} catch (Exception ex) {
 			throw ex;
 		} finally {

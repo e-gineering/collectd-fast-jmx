@@ -267,15 +267,9 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 * @return
 	 */
 	public int init() {
-		for (Connection connectionEntry : connections) {
-			Collectd.logInfo("FastJMX plugin: Initiating Connection to: " + connectionEntry.rawUrl);
-			connectionEntry.connect();
-		}
-
+		// Configure the ThreadGroups and pools.
 		ThreadGroup fastJMXThreads = new ThreadGroup("FastJMX");
-		fastJMXThreads.setDaemon(true);
 		fastJMXThreads.setMaxPriority(Thread.MAX_PRIORITY);
-
 
 		final ThreadGroup mbeanReaders = new ThreadGroup(fastJMXThreads, "MbeanReaders");
 		mbeanExecutor = new ThreadPoolExecutor(Runtime.getRuntime().availableProcessors() * 2,
@@ -284,8 +278,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 				                                      new LinkedBlockingQueue<Runnable>(),
 				                                      new ThreadFactory() {
 					                                      public Thread newThread(Runnable r) {
-						                                      Thread t =
-								                                      new Thread(mbeanReaders, r, "mbean-reader-" + threadCount++);
+						                                      Thread t = new Thread(mbeanReaders, r, "mbean-reader-" + threadCount++);
 						                                      t.setDaemon(mbeanReaders.isDaemon());
 						                                      t.setPriority(Thread.MAX_PRIORITY - 2);
 						                                      return t;
@@ -297,7 +290,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 		final ThreadGroup reconnectors = new ThreadGroup(fastJMXThreads, "Reconnectors");
 
 		reconnectExecutor =
-				new ThreadPoolExecutor(0, Runtime.getRuntime().availableProcessors(), 30, TimeUnit.SECONDS, new ArrayBlockingQueue<Runnable>(connections.size()), new ThreadFactory() {
+				new ThreadPoolExecutor(0, Math.max(1, connections.size()), 30, TimeUnit.SECONDS, new ArrayBlockingQueue<Runnable>(Math.max(1, connections.size() / 2)), new ThreadFactory() {
 					public Thread newThread(Runnable r) {
 						Thread t = new Thread(reconnectors, r, "reconnector-" + reconnectCount++);
 						t.setDaemon(reconnectors.isDaemon());
@@ -306,6 +299,17 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 					}
 				});
 		reconnectExecutor.allowCoreThreadTimeOut(true);
+
+
+		// Open connections.
+		for (Connection connectionEntry : connections) {
+			Collectd.logInfo("FastJMX plugin: Initiating Connection to: " + connectionEntry.rawUrl);
+			try {
+				connectionEntry.connect();
+			} catch (IOException ioe) {
+				reconnectExecutor.execute(new Reconnector(connectionEntry));
+			}
+		}
 
 		return 0;
 	}
@@ -336,7 +340,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 					if (warmupReads > 3) {
 						interval = start - previousStart;
 						intervalUnit = TimeUnit.NANOSECONDS;
-						Collectd.logInfo("FastJMX plugin: Setting auto-detected interval to " + interval + " " + intervalUnit.name());
+						Collectd.logInfo("FastJMX plugin: Setting auto-detected interval to " + TimeUnit.SECONDS.convert(interval, intervalUnit) + " seconds");
 						mbeanExecutor.setCorePoolSize(Runtime.getRuntime().availableProcessors() * 2);
 						mbeanExecutor.setMaximumPoolSize(Math.max(Runtime.getRuntime().availableProcessors() * 2, collectablePermutations.size() / 2));
 						Collectd.logInfo("FastJMX plugin: Setting thread pool size " + mbeanExecutor.getCorePoolSize() + "~" + mbeanExecutor.getMaximumPoolSize());
@@ -364,6 +368,9 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 			} catch (ExecutionException ex) {
 				failed++;
 				Collectd.logError("FastJMX plugin: Failed " + ex.getCause());
+				if (ex.getCause() instanceof BrokenConnectionException) {
+					reconnectExecutor.execute(new Reconnector(((BrokenConnectionException)ex.getCause()).getBrokenConnection()));
+				}
 			} catch (CancellationException ce) {
 				cancelled++;
 			} catch (InterruptedException ie) {
@@ -372,7 +379,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 			}
 		}
 		long duration = System.nanoTime() - start;
-		Collectd.logInfo("FastJMX plugin: failed/cancelled/successful:" + failed + "/" + cancelled + "/" + success + " in " + TimeUnit.MILLISECONDS.convert(duration, TimeUnit.NANOSECONDS) + "ms");
+		Collectd.logInfo("FastJMX plugin: Read " + failed + "/" + cancelled + "/" + success + " in " + TimeUnit.MILLISECONDS.convert(duration, TimeUnit.NANOSECONDS) + "ms");
 
 		previousStart = start;
 		return 0;
@@ -425,8 +432,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 								Collectd.logDebug("FastJMX plugin: Found " + instances.size() + " instances of " + attrib.findName + " @ " + connection.rawUrl);
 								collectablePermutations.addAll(AttributePermutation.create(instances.toArray(new ObjectName[instances.size()]), connection, attrib));
 							} catch (IOException ioe) {
-								Collectd.logError("FastJMX plugin: Exception! " + ioe);
-								connection.close();
+								Collectd.logError("FastJMX plugin: Failed to find " + attrib.findName + " @ " + connection.rawUrl + " Exception message: " + ioe.getMessage());
 							}
 						}
 					}
@@ -434,22 +440,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 			} else if (notification.getType().equals(JMXConnectionNotification.CLOSED) ||
 					           notification.getType().equals(JMXConnectionNotification.FAILED)) {
 				Collectd.logDebug("FastJMX plugin: Removing collectable permutations for " + connection.rawUrl);
-				// Remove the AttributePermutation objects appropriate for this Connection.
-				synchronized (collectablePermutations) {
-					ArrayList<AttributePermutation> toRemove = new ArrayList<AttributePermutation>();
-					for (AttributePermutation permutation : collectablePermutations) {
-						if (permutation.getConnection().equals(connection)) {
-							toRemove.add(permutation);
-						}
-					}
-					collectablePermutations.removeAll(toRemove);
-				}
-
-				reconnectExecutor.execute(new Runnable() {
-					public void run() {
-						connection.connect();
-					}
-				});
+				removeCollectables(connection);
 			}
 		} else if (notification instanceof MBeanServerNotification) {
 			Connection connection = (Connection) handback;
@@ -477,6 +468,22 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 				}
 			}
 		}
+	}
+
+	private void removeCollectables(Connection connection) {
+		// Remove the AttributePermutation objects appropriate for this Connection.
+		ArrayList<AttributePermutation> toRemove = new ArrayList<AttributePermutation>();
+		synchronized (collectablePermutations) {
+			for (AttributePermutation permutation : collectablePermutations) {
+				if (permutation.getConnection().equals(connection)) {
+					toRemove.add(permutation);
+				}
+			}
+			collectablePermutations.removeAll(toRemove);
+		}
+
+		// Schedule a reconnect.
+		reconnectExecutor.execute(new Reconnector(connection));
 	}
 
 	/**
@@ -525,5 +532,22 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 		}
 
 		return (new Boolean(v.getBoolean()));
+	}
+
+	private class Reconnector implements Runnable {
+		Connection connection;
+
+		Reconnector(final Connection connection) {
+			this.connection = connection;
+		}
+
+		public void run() {
+			try {
+				connection.connect();
+			} catch (IOException ioe) {
+				// Schedule again in the future.
+				reconnectExecutor.execute(new Reconnector(connection));
+			}
+		}
 	}
 }
