@@ -1,4 +1,4 @@
-# FastJMX - Low-latency JMX collectd plugin
+## FastJMX - Low-latency JMX collectd plugin
 
 The default GenericJMX plugin from collectd is great for basic collection of small numbers of metrics, but if you need to collect many metrics from one 
 or more hosts, the latency to read the metrics can quickly exceed your interval time, and that's no fun. If you want to remotely collect metrics from
