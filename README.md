@@ -1,11 +1,11 @@
-# FastJMX - A low-latency JMX plugin for collectd
+# FastJMX - Low-latency JMX collectd plugin
 
 The default GenericJMX plugin from collectd is great for basic collection of small numbers of metrics, but if you need to collect many metrics from one 
 or more hosts, the latency to read the metrics can quickly exceed your interval time, and that's no fun. If you want to remotely collect metrics from
 multiple hosts you can forget about having short intervals, and some of the configuration settings aren't exactly obvious. 
 Example: What do you mean I have to include the hostname? I gave you the serviceUrl!
 
-## Introducing FastJMX - Async ~~all~~ the things!
+### Introducing FastJMX - Async ~~all~~ many of the things!
 
 FastJMX does things differently than the GenericJMX plugin, but it does it in a manner that's configuration-compatible with the original plugin.
 (You read that right. There's just a few small tweaks to an existing configuration and FastJMX will take over)
