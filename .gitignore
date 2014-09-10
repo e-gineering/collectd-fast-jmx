@@ -1,0 +1,19 @@
+*.class
+
+# Mobile Tools for Java (J2ME)
+.mtj.tmp/
+
+# Package Files #
+*.jar
+*.war
+*.ear
+
+# Tools, IDEs, desktops
+*.iml
+.DS_Store
+.idea
+target
+nb*.xml
+
+# Include the stuff in /lib
+!lib/**
