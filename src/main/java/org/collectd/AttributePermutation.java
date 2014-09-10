@@ -50,7 +50,11 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 
 		PluginData pd = new PluginData();
 		pd.setHost(connection.hostname);
-		pd.setPlugin("FastJMX");
+		if (context.pluginName != null) {
+			pd.setPlugin(context.pluginName);
+		} else {
+			pd.setPlugin("FastJMX");
+		}
 
 		for (ObjectName objName : objectNames) {
 			PluginData permutationPD = new PluginData(pd);

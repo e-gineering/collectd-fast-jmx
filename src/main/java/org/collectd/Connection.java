@@ -37,7 +37,6 @@ public class Connection implements NotificationListener {
 	private MBeanServerConnection serverConnection;
 
 	private Timer connectTimer;
-	private ConnectTask connectTask;
 
 	public Connection(final NotificationListener notificationListener, final String rawUrl, final String hostname, final JMXServiceURL serviceURL, final String username,
 	                  final String password, final String connectionInstancePrefix, final List<String> beanAliases) {
@@ -53,10 +52,6 @@ public class Connection implements NotificationListener {
 		this.serverConnector = null;
 		this.serverConnection = null;
 		this.connectTimer = new Timer("Connect-" + rawUrl, true);
-	}
-
-	public boolean isConnected() {
-		return serverConnector != null && serverConnection != null;
 	}
 
 	public void connect() {

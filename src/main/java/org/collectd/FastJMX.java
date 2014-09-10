@@ -147,6 +147,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 						String valueInstancePrefix = null;
 						List<String> valueInstanceFrom = new ArrayList<String>();
 						boolean composite = false;
+						String pluginName = null;
 						List<Attribute> beanAttributes = new ArrayList<Attribute>();
 
 						for (OConfigItem valueChild : beanChild.getChildren()) {
@@ -160,12 +161,15 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 								valueInstanceFrom.add(getConfigString(valueChild));
 							} else if ("table".equalsIgnoreCase(valueChild.getKey()) || "composite".equalsIgnoreCase(valueChild.getKey())) {
 								composite = getConfigBoolean(valueChild);
+							} else if ("pluginname".equalsIgnoreCase(valueChild.getKey())) {
+								pluginName = getConfigString(valueChild);
 							}
 						}
+
 						Collectd.logDebug("FastJMX plugin:  Adding " + beanAlias + " for " + matchObjectName);
 
 						// Adds the attribute definition.
-						beanAttributes.add(new Attribute(valueAttributes, valueDs, valueInstancePrefix, valueInstanceFrom,
+						beanAttributes.add(new Attribute(valueAttributes, pluginName, valueDs, valueInstancePrefix, valueInstanceFrom,
 								                                composite, beanAlias, matchObjectName,
 								                                beanInstancePrefix, beanInstanceFrom));
 
@@ -182,6 +186,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 				}
 			} else if ("connection".equalsIgnoreCase(pluginChild.getKey())) {
 				String hostName = getConfigString(pluginChild);
+				Boolean hostnamePort = null;
 				String rawUrl = null;
 				JMXServiceURL serviceURL = null;
 				String username = null;
@@ -206,16 +211,17 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 						}
 					} else if ("collect".equalsIgnoreCase(connectionChild.getKey())) {
 						beanAliases.add(getConfigString(connectionChild).toLowerCase());
+					} else if ("includeportinhostname".equalsIgnoreCase(connectionChild.getKey())) {
+						hostnamePort = getConfigBoolean(connectionChild);
 					}
 				}
 
 				if (serviceURL != null) {
+					int port = serviceURL.getPort();
 					if (!beanAliases.isEmpty()) {
 						// Try to parse the host name from the serviceURL, if none was defined.
-						int port = 0;
 						if (hostName == null) {
 							hostName = serviceURL.getHost();
-							port = serviceURL.getPort();
 
 							// If that didn't work, try shortening the URL to something more manageable.
 							if ((hostName == null || "".equals(hostName)) && rawUrl.lastIndexOf("://") > rawUrl.lastIndexOf(":///")) {
@@ -231,8 +237,8 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 							}
 						}
 
-						if (port != 0) {
-							hostName = hostName + ":" + port;
+						if (hostnamePort != null && hostnamePort.booleanValue()) {
+							hostName = hostName + "@" + port;
 						}
 
 						// Now create the org.collectd.Connection and put it into our hashmap.

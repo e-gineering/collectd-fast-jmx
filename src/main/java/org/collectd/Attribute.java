@@ -13,6 +13,7 @@ import java.util.List;
  */
 public class Attribute {
 	String beanAlias;
+	String pluginName;
 
 	ObjectName findName;
 	String beanInstancePrefix;
@@ -24,11 +25,12 @@ public class Attribute {
 	List<String> valueInstanceFrom = new ArrayList<String>();
 	boolean composite;
 
-	public Attribute(final List<String> attributes, final DataSet dataset,
+	public Attribute(final List<String> attributes, final String pluginName, final DataSet dataset,
 	                 final String valueInstancePrefix, final List<String> valueInstanceFrom, final boolean composite,
 	                 final String beanAlias, final ObjectName findName,
 	                 final String beanInstancePrefix, final List<String> beanInstanceFrom) {
 		this.beanAlias = beanAlias;
+		this.pluginName = pluginName;
 		this.findName = findName;
 		this.beanInstancePrefix = beanInstancePrefix;
 		this.beanInstanceFrom = beanInstanceFrom;
