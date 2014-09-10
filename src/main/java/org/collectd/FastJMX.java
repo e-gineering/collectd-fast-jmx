@@ -212,19 +212,27 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 				if (serviceURL != null) {
 					if (!beanAliases.isEmpty()) {
 						// Try to parse the host name from the serviceURL, if none was defined.
+						int port = 0;
 						if (hostName == null) {
 							hostName = serviceURL.getHost();
+							port = serviceURL.getPort();
 
 							// If that didn't work, try shortening the URL to something more manageable.
 							if ((hostName == null || "".equals(hostName)) && rawUrl.lastIndexOf("://") > rawUrl.lastIndexOf(":///")) {
 								try {
-									hostName = new JMXServiceURL(rawUrl.substring(0, rawUrl.indexOf(":///"))
-											                             + rawUrl.substring(rawUrl.lastIndexOf("://"))).getHost();
+									JMXServiceURL shortUrl = new JMXServiceURL(rawUrl.substring(0, rawUrl.indexOf(":///"))
+											                             + rawUrl.substring(rawUrl.lastIndexOf("://")));
+									hostName = shortUrl.getHost();
+									port = shortUrl.getPort();
 								} catch (MalformedURLException me) {
 									hostName = Collectd.getHostname();
 									Collectd.logWarning("Unable to parse hostname from JMX service URL: [" + rawUrl + "]. Falling back to hostname reported by this collectd instance: [" + hostName + "]");
 								}
 							}
+						}
+
+						if (port != 0) {
+							hostName = hostName + ":" + port;
 						}
 
 						// Now create the org.collectd.Connection and put it into our hashmap.
