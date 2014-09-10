@@ -25,8 +25,7 @@ public class Attribute {
 	public Attribute(final List<String> attributes, final DataSet dataset,
 	                 final String valueInstancePrefix, final List<String> valueInstanceFrom, final boolean composite,
 	                 final String beanAlias, final ObjectName findName,
-	                 final String beanInstancePrefix, final List<String> beanInstanceFrom)
-	{
+	                 final String beanInstancePrefix, final List<String> beanInstanceFrom) {
 		this.beanAlias = beanAlias;
 		this.findName = findName;
 		this.beanInstancePrefix = beanInstancePrefix;

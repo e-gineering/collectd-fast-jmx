@@ -22,7 +22,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -174,7 +173,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 						if (valueDs.getDataSources().size() == valueAttributes.size()) {
 							attributes.addAll(beanAttributes);
 						} else {
-							Collectd.logError("FastJMX: The data set for bean '" + beanAlias + "' of type '"
+							Collectd.logError("FastJMX plugin: The data set for bean '" + beanAlias + "' of type '"
 									                  + valueDs.getType() + "' has " + valueDs.getDataSources().size()
 									                  + " data sources, but there were " + valueAttributes.size()
 									                  + " attributes configured. This bean will not be collected!");
@@ -202,7 +201,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 						try {
 							serviceURL = new JMXServiceURL(rawUrl);
 						} catch (MalformedURLException me) {
-							Collectd.logError("FastJMX: ServiceURL definition [" + getConfigString(connectionChild) + "] is invalid: " + me.getMessage());
+							Collectd.logError("FastJMX plugin: ServiceURL definition [" + getConfigString(connectionChild) + "] is invalid: " + me.getMessage());
 							serviceURL = null;
 						}
 					} else if ("collect".equalsIgnoreCase(connectionChild.getKey())) {
@@ -269,7 +268,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 */
 	public int init() {
 		for (Connection connectionEntry : connections) {
-			Collectd.logInfo("FastJMX: Initiating Connection to: " + connectionEntry.rawUrl);
+			Collectd.logInfo("FastJMX plugin: Initiating Connection to: " + connectionEntry.rawUrl);
 			connectionEntry.connect();
 		}
 
@@ -280,30 +279,32 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 
 		final ThreadGroup mbeanReaders = new ThreadGroup(fastJMXThreads, "MbeanReaders");
 		mbeanExecutor = new ThreadPoolExecutor(Runtime.getRuntime().availableProcessors() * 2,
-				                                           Math.max(Runtime.getRuntime().availableProcessors() * 2, collectablePermutations.size() / 2),
-				                                           interval > 0 ? interval : 30, intervalUnit,
-				                                           new LinkedBlockingQueue<Runnable>(),
-				                                           new ThreadFactory() {
-					                                           public Thread newThread(Runnable r) {
-						                                           Thread t = new Thread(mbeanReaders, r, "mbean-reader-" + threadCount++);
-						                                           t.setDaemon(mbeanReaders.isDaemon());
-						                                           t.setPriority(Thread.MAX_PRIORITY - 2);
-						                                           return t;
-					                                           }
-				                                           });
+				                                      Math.max(Runtime.getRuntime().availableProcessors() * 2, collectablePermutations.size() / 2),
+				                                      interval > 0 ? interval : 30, intervalUnit,
+				                                      new LinkedBlockingQueue<Runnable>(),
+				                                      new ThreadFactory() {
+					                                      public Thread newThread(Runnable r) {
+						                                      Thread t =
+								                                      new Thread(mbeanReaders, r, "mbean-reader-" + threadCount++);
+						                                      t.setDaemon(mbeanReaders.isDaemon());
+						                                      t.setPriority(Thread.MAX_PRIORITY - 2);
+						                                      return t;
+					                                      }
+				                                      });
 		mbeanExecutor.allowCoreThreadTimeOut(true);
 		mbeanExecutor.prestartAllCoreThreads();
 
 		final ThreadGroup reconnectors = new ThreadGroup(fastJMXThreads, "Reconnectors");
 
-		reconnectExecutor = new ThreadPoolExecutor(0, Runtime.getRuntime().availableProcessors(), 30, TimeUnit.SECONDS, new ArrayBlockingQueue<Runnable>(connections.size()), new ThreadFactory() {
-			public Thread newThread(Runnable r) {
-				Thread t = new Thread(reconnectors, r, "reconnector-" + reconnectCount++);
-				t.setDaemon(reconnectors.isDaemon());
-				t.setPriority(Thread.MIN_PRIORITY);
-				return t;
-			}
-		});
+		reconnectExecutor =
+				new ThreadPoolExecutor(0, Runtime.getRuntime().availableProcessors(), 30, TimeUnit.SECONDS, new ArrayBlockingQueue<Runnable>(connections.size()), new ThreadFactory() {
+					public Thread newThread(Runnable r) {
+						Thread t = new Thread(reconnectors, r, "reconnector-" + reconnectCount++);
+						t.setDaemon(reconnectors.isDaemon());
+						t.setPriority(Thread.MIN_PRIORITY);
+						return t;
+					}
+				});
 		reconnectExecutor.allowCoreThreadTimeOut(true);
 
 		return 0;
@@ -411,20 +412,20 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 			final Connection connection = (Connection) handback;
 
 			if (notification.getType().equals(JMXConnectionNotification.OPENED)) {
-				Collectd.logDebug("FastJMX: Creating collectablePermutations for " + connection.rawUrl);
+				Collectd.logDebug("FastJMX plugin: Creating collectablePermutations for " + connection.rawUrl);
 				// Create the AttributePermutation objects appropriate for this Connection.
 				synchronized (attributes) {
 					for (Attribute attrib : attributes) {
 						// If the host is supposed to collect this attribute, look for matching objectNames on the host.
 						if (connection.beanAliases.contains(attrib.beanAlias)) {
-							Collectd.logDebug("FastJMX: Looking for " + attrib.findName + " @ " + connection.rawUrl);
+							Collectd.logDebug("FastJMX plugin: Looking for " + attrib.findName + " @ " + connection.rawUrl);
 							try {
 								Set<ObjectName> instances =
 										connection.getServerConnection().queryNames(attrib.findName, null);
-								Collectd.logDebug("FastJMX: Found " + instances.size() + " instances of " + attrib.findName + " @ " + connection.rawUrl);
+								Collectd.logDebug("FastJMX plugin: Found " + instances.size() + " instances of " + attrib.findName + " @ " + connection.rawUrl);
 								collectablePermutations.addAll(AttributePermutation.create(instances.toArray(new ObjectName[instances.size()]), connection, attrib));
 							} catch (IOException ioe) {
-								Collectd.logError("FastJMX: Exception! " + ioe);
+								Collectd.logError("FastJMX plugin: Exception! " + ioe);
 								connection.close();
 							}
 						}
@@ -432,7 +433,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 				}
 			} else if (notification.getType().equals(JMXConnectionNotification.CLOSED) ||
 					           notification.getType().equals(JMXConnectionNotification.FAILED)) {
-				Collectd.logDebug("FastJMX: Removing collectablePermutations for " + connection.rawUrl);
+				Collectd.logDebug("FastJMX plugin: Removing collectable permutations for " + connection.rawUrl);
 				// Remove the AttributePermutation objects appropriate for this Connection.
 				synchronized (collectablePermutations) {
 					ArrayList<AttributePermutation> toRemove = new ArrayList<AttributePermutation>();
@@ -444,15 +445,9 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 					collectablePermutations.removeAll(toRemove);
 				}
 
-				Collectd.logNotice("FastJMX: Scheduling reconnect for : " + connection.rawUrl);
 				reconnectExecutor.execute(new Runnable() {
 					public void run() {
-						try {
-							TimeUnit.SECONDS.sleep(10);
-							connection.connect();
-						} catch (InterruptedException ie) {
-							Collectd.logNotice("FastJMX: Interrupted while waiting to reconnect: " + connection.rawUrl);
-						}
+						connection.connect();
 					}
 				});
 			}

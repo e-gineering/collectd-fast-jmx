@@ -38,7 +38,7 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 	public static List<AttributePermutation> create(final ObjectName[] objectNames, final Connection connection, final Attribute context) {
 		// This method takes into account the beanInstanceFrom and valueInstanceFrom properties to create many AttributePermutations.
 		if (objectNames.length == 0) {
-			Collectd.logWarning("FastJMX: No MBeans matched " + context.findName + " @ " + connection.rawUrl);
+			Collectd.logWarning("FastJMX plugin: No MBeans matched " + context.findName + " @ " + connection.rawUrl);
 			return new ArrayList<AttributePermutation>(0);
 		}
 
@@ -57,7 +57,7 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 				String propertyValue = objName.getKeyProperty(propertyName);
 
 				if (propertyValue == null) {
-					Collectd.logError("FastJMX: No such property [" + propertyName + "] in ObjectName [" + objName + "] for bean instance creation.");
+					Collectd.logError("FastJMX plugin: No such property [" + propertyName + "] in ObjectName [" + objName + "] for bean instance creation.");
 				} else {
 					beanInstanceList.add(propertyValue);
 				}
@@ -89,7 +89,7 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 			for (String propertyName : context.valueInstanceFrom) {
 				String propertyValue = objName.getKeyProperty(propertyName);
 				if (propertyValue == null) {
-					Collectd.logError("FastJMX: no such property [" + propertyName + "] in ObjectName [" + objName + "] for attribute instance creation.");
+					Collectd.logError("FastJMX plugin: no such property [" + propertyName + "] in ObjectName [" + objName + "] for attribute instance creation.");
 				} else {
 					attributeInstanceList.add(propertyValue);
 				}
@@ -199,13 +199,13 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 					ValueList vl = new ValueList(this.valueList);
 					vl.setTypeInstance(vl.getTypeInstance() + key);
 					vl.setValues(genericCompositeToNumber(cdList, key));
-					Collectd.logDebug("FastJMX: dispatch " + vl);
+					Collectd.logDebug("FastJMX plugin: dispatch " + vl);
 					Collectd.dispatchValues(vl);
 				}
 			} else {
 				ValueList vl = new ValueList(this.valueList);
 				vl.setValues(genericListToNumber(values));
-				Collectd.logDebug("FastJMX: dispatch " + vl);
+				Collectd.logDebug("FastJMX plugin: dispatch " + vl);
 				Collectd.dispatchValues(vl);
 			}
 		} catch (Exception ex) {
