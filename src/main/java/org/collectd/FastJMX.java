@@ -272,8 +272,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 		fastJMXThreads.setMaxPriority(Thread.MAX_PRIORITY);
 
 		final ThreadGroup mbeanReaders = new ThreadGroup(fastJMXThreads, "MbeanReaders");
-		mbeanExecutor = new ThreadPoolExecutor(Runtime.getRuntime().availableProcessors() + 1, Runtime.getRuntime().availableProcessors() * 3,
-				                                      60, TimeUnit.SECONDS,
+		mbeanExecutor = new ThreadPoolExecutor(1, 1, 60, TimeUnit.SECONDS,
 				                                      new LinkedBlockingQueue<Runnable>(),
 				                                      new ThreadFactory() {
 					                                      public Thread newThread(Runnable r) {
@@ -284,7 +283,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 						                                      return t;
 					                                      }
 				                                      });
-		mbeanExecutor.allowCoreThreadTimeOut(true);
+		mbeanExecutor.allowCoreThreadTimeOut(false);
 		mbeanExecutor.prestartAllCoreThreads();
 
 		// Open connections.
@@ -324,7 +323,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 						intervalUnit = TimeUnit.NANOSECONDS;
 						Collectd.logInfo("FastJMX plugin:  Setting auto-detected interval to " + TimeUnit.SECONDS.convert(interval, intervalUnit) + " seconds");
 						mbeanExecutor.setCorePoolSize(Runtime.getRuntime().availableProcessors() * 2);
-						mbeanExecutor.setMaximumPoolSize(Math.max(Runtime.getRuntime().availableProcessors() * 2, collectablePermutations.size() / 2));
+						mbeanExecutor.setMaximumPoolSize(Math.max(Runtime.getRuntime().availableProcessors() * 2, connections.size()));
 						Collectd.logInfo("FastJMX plugin:  Setting thread pool size " + mbeanExecutor.getCorePoolSize() + "~" + mbeanExecutor.getMaximumPoolSize());
 					}
 				}
@@ -358,7 +357,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 			}
 		}
 		long duration = System.nanoTime() - start;
-		Collectd.logInfo("FastJMX plugin:  Read " + failed + "/" + cancelled + "/" + success + " in " + TimeUnit.MILLISECONDS.convert(duration, TimeUnit.NANOSECONDS) + "ms");
+		Collectd.logInfo("FastJMX plugin:  Read " + failed + "/" + cancelled + "/" + success + " in " + TimeUnit.MILLISECONDS.convert(duration, TimeUnit.NANOSECONDS) + "ms with: " + mbeanExecutor.getPoolSize() + " threads");
 
 		previousStart = start;
 		return 0;
