@@ -45,7 +45,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	private static long reconnectCount = 0;
 	private static long threadCount = 0;
 
-	private long warmupReads = 0;
+	private long reads = 0;
 	private long interval = -1l;
 	private TimeUnit intervalUnit = TimeUnit.SECONDS;
 	private long previousStart = 0;
@@ -323,16 +323,16 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 */
 	public int read() {
 		long start = System.nanoTime();
+		reads++;
 
 		List<Future<AttributePermutation>> results = new ArrayList<Future<AttributePermutation>>();
 		synchronized (collectablePermutations) {
 			try {
 				if (interval < 0) {
-					warmupReads++;
 					mbeanExecutor.setCorePoolSize(1);
 					mbeanExecutor.setMaximumPoolSize(1);
 
-					if (warmupReads > 3) {
+					if (reads > 3) {
 						interval = start - previousStart;
 						intervalUnit = TimeUnit.NANOSECONDS;
 						Collectd.logInfo("FastJMX plugin:  Setting auto-detected interval to " + TimeUnit.SECONDS.convert(interval, intervalUnit) + " seconds");
