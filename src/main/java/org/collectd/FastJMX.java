@@ -323,7 +323,11 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 */
 	public int read() {
 		long start = System.nanoTime();
-		reads++;
+
+		// Rollover in case we're -really- long running.
+		if (reads++ == Long.MAX_VALUE) {
+			reads = 0;
+		}
 
 		List<Future<AttributePermutation>> results = new ArrayList<Future<AttributePermutation>>();
 		synchronized (collectablePermutations) {
