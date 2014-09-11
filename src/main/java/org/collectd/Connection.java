@@ -160,7 +160,7 @@ public class Connection implements NotificationListener {
 		@Override
 		public void run() {
 			this.cancel();
-			Collectd.logDebug("FastJMX plugin: ConnectTask started for: " + rawUrl + " delayed " + connectBackoff);
+			Collectd.logInfo("FastJMX plugin: Connecting to: " + rawUrl);
 
 			if (connectBackoff == 0) {
 				connectBackoff = 5;
@@ -190,6 +190,7 @@ public class Connection implements NotificationListener {
 				} catch (IOException ioe) {
 					Collectd.logWarning("FastJMX plugin: Could not connect to : " + rawUrl + " exception message: " + ioe.getMessage());
 					close();
+					Collectd.logNotice("FastJMX plugin: Scheduling reconnect to: " + rawUrl + " in " + connectBackoff + " seconds.");
 					ConnectTask backoffConnect = new ConnectTask(connectBackoff);
 					connectTimer.schedule(backoffConnect, backoffConnect.getDelay());
 				}

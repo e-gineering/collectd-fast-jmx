@@ -226,8 +226,9 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 							// If that didn't work, try shortening the URL to something more manageable.
 							if ((hostName == null || "".equals(hostName)) && rawUrl.lastIndexOf("://") > rawUrl.lastIndexOf(":///")) {
 								try {
-									JMXServiceURL shortUrl = new JMXServiceURL(rawUrl.substring(0, rawUrl.indexOf(":///"))
-											                             + rawUrl.substring(rawUrl.lastIndexOf("://")));
+									JMXServiceURL shortUrl =
+											new JMXServiceURL(rawUrl.substring(0, rawUrl.indexOf(":///"))
+													                  + rawUrl.substring(rawUrl.lastIndexOf("://")));
 									hostName = shortUrl.getHost();
 									port = shortUrl.getPort();
 								} catch (MalformedURLException me) {
@@ -289,7 +290,6 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 
 		// Open connections.
 		for (Connection connectionEntry : connections) {
-			Collectd.logInfo("FastJMX plugin: Initiating org.collectd.Connection to: " + connectionEntry.rawUrl);
 			connectionEntry.connect();
 		}
 
@@ -316,31 +316,37 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 			reads = 1;
 		}
 
-		List<Future<AttributePermutation>> results = new ArrayList<Future<AttributePermutation>>();
+		// On the second cycle, and then every 10 read cycles, adjust the pool and interval.
+		if (reads == 2 || reads % 10 == 0) {
+			interval = TimeUnit.MILLISECONDS.convert(start - previousStart, TimeUnit.NANOSECONDS);
+			intervalUnit = TimeUnit.MILLISECONDS;
+			Collectd.logInfo("FastJMX plugin: Interval calculated at: " + interval + " " + intervalUnit);
+			synchronized (collectablePermutations) {
+				for (AttributePermutation collectable : collectablePermutations) {
+					collectable.setInterval(interval, intervalUnit);
+				}
+			}
+
+			mbeanExecutor.setCorePoolSize(Runtime.getRuntime().availableProcessors() * 2);
+			mbeanExecutor.setMaximumPoolSize(Math.max(Runtime.getRuntime().availableProcessors() * 2, connections.size()));
+			Collectd.logInfo("FastJMX plugin: Setting thread pool size " + mbeanExecutor.getCorePoolSize() + "~" + mbeanExecutor.getMaximumPoolSize());
+		}
+
+		// If we've detected an interval, invoke the attribute collectors with a maximum timeout of that interval period - 10 milliseconds.
+		List<Future<AttributePermutation>> results = null;
 		synchronized (collectablePermutations) {
 			try {
-				// On the second cycle, and then every 10 read cycles, adjust the pool and interval.
-				if (reads == 2 || reads % 10 == 0) {
-					interval = TimeUnit.MILLISECONDS.convert(start - previousStart, TimeUnit.NANOSECONDS);
-					intervalUnit = TimeUnit.MILLISECONDS;
-
-					Collectd.logInfo("FastJMX plugin: Setting auto-detected interval to " + interval + " " + intervalUnit);
-					for (AttributePermutation collectable : collectablePermutations) {
-						collectable.setInterval(interval, intervalUnit);
-					}
-					mbeanExecutor.setCorePoolSize(Runtime.getRuntime().availableProcessors() * 2);
-					mbeanExecutor.setMaximumPoolSize(Math.max(Runtime.getRuntime().availableProcessors() * 2, connections.size()));
-					Collectd.logInfo("FastJMX plugin: Setting thread pool size " + mbeanExecutor.getCorePoolSize() + "~" + mbeanExecutor.getMaximumPoolSize());
-				}
-
-				// If we've detected an interval, invoke the attribute collectors with a maximum timeout in that interval period.
 				if (interval > 0) {
-					results = mbeanExecutor.invokeAll(collectablePermutations, interval, intervalUnit);
+					results = mbeanExecutor.invokeAll(collectablePermutations, TimeUnit.MILLISECONDS.convert(interval, intervalUnit) - 10, TimeUnit.MILLISECONDS);
 				} else {
 					results = mbeanExecutor.invokeAll(collectablePermutations);
 				}
 			} catch (InterruptedException ie) {
 				Collectd.logNotice("FastJMX plugin: Interrupted during read() cycle.");
+			} finally {
+				if (results == null) {
+					results = new ArrayList<Future<AttributePermutation>>(0);
+				}
 			}
 		}
 
@@ -362,7 +368,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 			}
 		}
 		long duration = System.nanoTime() - start;
-		Collectd.logInfo("FastJMX plugin: Read " + failed + "/" + cancelled + "/" + success + " in " + TimeUnit.MILLISECONDS.convert(duration, TimeUnit.NANOSECONDS) + "ms with: " + mbeanExecutor.getPoolSize() + " threads");
+		Collectd.logInfo("FastJMX plugin: [failed:" + failed + ", canceled:" + cancelled + ", successful:" + success + "] in " + TimeUnit.MILLISECONDS.convert(duration, TimeUnit.NANOSECONDS) + "ms with: " + mbeanExecutor.getPoolSize() + " threads");
 
 		previousStart = start;
 		return 0;
@@ -489,8 +495,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 				removePermutations(connection);
 				createPermutations(connection);
 			} else if (notification.getType().equals(JMXConnectionNotification.CLOSED) ||
-					           notification.getType().equals(JMXConnectionNotification.FAILED))
-			{
+					           notification.getType().equals(JMXConnectionNotification.FAILED)) {
 				// Remove the permutations and reconnect.
 				removePermutations(connection);
 				connection.connect();
