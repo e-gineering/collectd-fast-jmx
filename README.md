@@ -17,6 +17,7 @@ FastJMX does things differently than the GenericJMX plugin, but it does it in a 
 * Each `<Value>` can define a custom `PluginName`, allowing you to segment your graphs into different plugin buckets rather than everything being "GenericJMX" or "FastJMX".
 * The port can be appended to the hostname using `IncludePortInHostname`. This is very helpful in separating data from multiple JVM instances on the same host without needing to specify an `InstancePrefix` on the `<Connection>`.
 * Hostnames are automatically detected from the serviceURL. If the serviceURL is a complex type, like `service:jmx:rmi:///jndi/rmi://hostname:port/jmxrmi`, FastJMX will still properly parse the hostname and port. Of course, if you want to you could still define the hostname property like GenericJMX does...
+* FastJMX doesn't require connections be defined after the beans. `<MBean>` (or `<MXBean>`, or just `<Bean>`) and `<Connection>` blocks can come in _any_ order.
 
 ### So how much faster is it?
 
@@ -32,3 +33,101 @@ I added two more hosts, with the same metrics.
 
 In further testing, I ended up pulling 99 metrics from 9 different remote servers, over a VPN with an average read cycle taking between 900ms and 1100ms.
 
+## Configuration
+Migrate your existing GenericJMX config by:
+
+* Add the path to the fast-jmx jar in JVMARG
+* Include `LoadPlugin "org.collectd.FastJMX` in the `<Plugin "java">` block.
+
+Additional Configuration Options:
+
+* Remove the `hostname` from the `<Connection>` blocks. FastJMX can detect it if you don't include it.
+* Single-attribute `<Value>` blocks can use the syntax `<Value "attributeName">`. See the `<MBean "classes">` example below.
+* Include `PluginName` declarations in a `<Value>` block to change the plugin name it's reported as.
+* Use `<MBean>` or `<MXBean>` or `<Bean>`.
+* `Composite` and `Table` can be used interchangeably to define a `<Value>`, and can be omitted (defaults to `false`).
+
+```
+LoadPlugin java
+<Plugin "java">
+  JVMARG "-Djava.class.path=/usr/share/collectd/java/collectd-api.jar:/path/to/fast-jmx-1.0-SNAPSHOT.jar"
+  
+  LoadPlugin "org.collectd.FastJMX"
+
+  <Plugin "FastJMX">
+  
+    <MBean "classes">
+      ObjectName "java.lang:type=ClassLoading"
+
+      <Value "LoadedClassCount">
+        Type "gauge"
+        InstancePrefix "loaded_classes"
+	      PluginName "JVM"
+      </Value>
+    </MBean>
+
+    # Time spent by the JVM compiling or optimizing.
+    <MBean "compilation">
+      ObjectName "java.lang:type=Compilation"
+
+      <Value "TotalCompilationTime">
+        Type "total_time_in_ms"
+        InstancePrefix "compilation_time"
+      	PluginName "JVM"
+      </Value>
+    </MBean>
+
+    # Garbage collector information
+    <MBean "garbage_collector">
+      ObjectName "java.lang:type=GarbageCollector,*"
+      InstancePrefix "gc-"
+      InstanceFrom "name"
+
+      <Value "CollectionTime">
+        Type "total_time_in_ms"
+        InstancePrefix "collection_time"
+      	PluginName "JVM"
+      </Value>
+    </MBean>
+
+    # Memory usage by memory pool.
+    <MBean "memory_pool">
+      ObjectName "java.lang:type=MemoryPool,*"
+      InstancePrefix "memory_pool-"
+      InstanceFrom "name"
+
+      <Value "Usage">
+        Type "java_memory"
+        Composite true
+	      PluginName "JVM"
+      </Value>
+    </MBean>
+
+
+    <Connection>
+      ServiceURL "service:jmx:rmi:///jndi/rmi://host1:8098/jmxrmi"
+      IncludePortInHostname true
+      Collect "classes"
+      Collect "compilation"
+      Collect "garbage_collector"
+      Collect "memory_pool"
+    </Connection>
+    <Connection>
+      ServiceURL "service:jmx:rmi:///jndi/rmi://host1:8198/jmxrmi"
+      IncludePortInHostname true
+      Collect "classes"
+      Collect "compilation"
+      Collect "garbage_collector"
+      Collect "memory_pool"
+    </Connection>
+    <Connection>
+      ServiceURL "service:jmx:rmi:///jndi/rmi://host2:8398/jmxrmi"
+      IncludePortInHostname true
+      Collect "classes"
+      Collect "compilation"
+      Collect "garbage_collector"
+      Collect "memory_pool"
+    </Connection>
+
+  </Plugin>
+  ```
