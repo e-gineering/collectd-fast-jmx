@@ -118,7 +118,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 * }
 	 * </pre>
 	 */
-	public int config(OConfigItem ci) {
+	public int config(final OConfigItem ci) {
 		for (OConfigItem pluginChild : ci.getChildren()) {
 			if ("mbean".equalsIgnoreCase(pluginChild.getKey()) || "mxbean".equalsIgnoreCase(pluginChild.getKey()) || "bean".equalsIgnoreCase(pluginChild.getKey())) {
 				String beanAlias = getConfigString(pluginChild).toLowerCase();
@@ -405,25 +405,6 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 
 
 	/**
-	 * Removes all AttributePermutations for the given collection from our list of things to collect in a read cycle.
-	 *
-	 * @param connection The Connection to no longer collect.
-	 */
-	private void removePermutations(final Connection connection) {
-		Collectd.logDebug("FastJMX plugin: Removing AttributePermutations for " + connection.rawUrl);
-		// Remove the org.collectd.AttributePermutation objects appropriate for this org.collectd.Connection.
-		ArrayList<AttributePermutation> toRemove = new ArrayList<AttributePermutation>();
-		synchronized (collectablePermutations) {
-			for (AttributePermutation permutation : collectablePermutations) {
-				if (permutation.getConnection().equals(connection)) {
-					toRemove.add(permutation);
-				}
-			}
-			collectablePermutations.removeAll(toRemove);
-		}
-	}
-
-	/**
 	 * Creates AttributePermutations for the given connection, querying the remote MBeanServer for ObjectNames matching
 	 * defined collect attributes for the connection.
 	 *
@@ -447,6 +428,25 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 					}
 				}
 			}
+		}
+	}
+
+	/**
+	 * Removes all AttributePermutations for the given collection from our list of things to collect in a read cycle.
+	 *
+	 * @param connection The Connection to no longer collect.
+	 */
+	private void removePermutations(final Connection connection) {
+		Collectd.logDebug("FastJMX plugin: Removing AttributePermutations for " + connection.rawUrl);
+		// Remove the org.collectd.AttributePermutation objects appropriate for this org.collectd.Connection.
+		ArrayList<AttributePermutation> toRemove = new ArrayList<AttributePermutation>();
+		synchronized (collectablePermutations) {
+			for (AttributePermutation permutation : collectablePermutations) {
+				if (permutation.getConnection().equals(connection)) {
+					toRemove.add(permutation);
+				}
+			}
+			collectablePermutations.removeAll(toRemove);
 		}
 	}
 
@@ -527,7 +527,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 * @param ci
 	 * @return The string, or <code>null</code> if no string is found.
 	 */
-	private String getConfigString(OConfigItem ci) {
+	private static String getConfigString(final OConfigItem ci) {
 		List<OConfigValue> values;
 		OConfigValue v;
 
@@ -551,7 +551,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 * @param ci
 	 * @return The Boolean value, or <code>null</code> if no boolean is found.
 	 */
-	private Boolean getConfigBoolean(OConfigItem ci) {
+	private static Boolean getConfigBoolean(final OConfigItem ci) {
 		List<OConfigValue> values;
 		OConfigValue v;
 		Boolean b;

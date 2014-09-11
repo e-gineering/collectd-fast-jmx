@@ -233,7 +233,7 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 		return lastRunDuration;
 	}
 
-	private List<Number> genericCompositeToNumber(List<CompositeData> cdlist, String key) {
+	private List<Number> genericCompositeToNumber(final List<CompositeData> cdlist, final String key) {
 		List<Object> objects = new ArrayList<Object>();
 
 		for (int i = 0; i < cdlist.size(); i++) {
@@ -249,7 +249,7 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 	}
 
 
-	private List<Number> genericListToNumber(List<Object> objects) throws IllegalArgumentException {
+	private List<Number> genericListToNumber(final List<Object> objects) throws IllegalArgumentException {
 		List<Number> ret = new ArrayList<Number>();
 		List<DataSource> dsrc = this.attribute.dataset.getDataSources();
 
@@ -265,7 +265,7 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 	 * <p/>
 	 * Returns null if a conversion is not possible or not implemented.
 	 */
-	private Number genericObjectToNumber(Object obj, int ds_type) throws IllegalArgumentException {
+	private Number genericObjectToNumber(final Object obj, final int ds_type) throws IllegalArgumentException {
 		if (obj instanceof String) {
 			String str = (String) obj;
 
