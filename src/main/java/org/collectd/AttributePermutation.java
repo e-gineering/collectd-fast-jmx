@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Defines an actual permutation of an org.collectd.Attribute to be read from a org.collectd.Connection.
@@ -39,7 +40,7 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 		this.valueList = vl;
 	}
 
-	public static List<AttributePermutation> create(final ObjectName[] objectNames, final Connection connection, final Attribute context) {
+	public static List<AttributePermutation> create(final ObjectName[] objectNames, final Connection connection, final Attribute context, final long interval, final TimeUnit intervalUnit) {
 		// This method takes into account the beanInstanceFrom and valueInstanceFrom properties to create many AttributePermutations.
 		if (objectNames.length == 0) {
 			Collectd.logWarning("FastJMX plugin: No MBeans matched " + context.findName + " @ " + connection.rawUrl);
@@ -91,6 +92,7 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 			permutationPD.setPluginInstance(beanInstance.toString());
 
 			ValueList vl = new ValueList(permutationPD);
+			vl.setInterval(TimeUnit.MILLISECONDS.convert(interval, intervalUnit));
 			vl.setType(context.dataset.getType());
 
 			List<String> attributeInstanceList = new ArrayList<String>();
@@ -132,6 +134,10 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 
 	public Attribute getAttribute() {
 		return attribute;
+	}
+
+	public void setInterval(final long value, final TimeUnit timeUnit) {
+		this.valueList.setInterval(TimeUnit.MILLISECONDS.convert(value, timeUnit));
 	}
 
 	@Override
