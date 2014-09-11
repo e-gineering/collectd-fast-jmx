@@ -46,9 +46,9 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	private static long threadCount = 0;
 
 	private long reads = 0;
-	private long interval = -1l;
-	private TimeUnit intervalUnit = TimeUnit.SECONDS;
-	private long previousStart = 0;
+	private long interval = 0l;
+	private TimeUnit intervalUnit = TimeUnit.MILLISECONDS;
+	private long previousStart = System.nanoTime();
 
 	private ThreadPoolExecutor mbeanExecutor;
 
@@ -118,7 +118,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 * }
 	 * </pre>
 	 */
-	public int config(OConfigItem ci) {
+	public int config(final OConfigItem ci) {
 		for (OConfigItem pluginChild : ci.getChildren()) {
 			if ("mbean".equalsIgnoreCase(pluginChild.getKey()) || "mxbean".equalsIgnoreCase(pluginChild.getKey()) || "bean".equalsIgnoreCase(pluginChild.getKey())) {
 				String beanAlias = getConfigString(pluginChild).toLowerCase();
@@ -226,8 +226,9 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 							// If that didn't work, try shortening the URL to something more manageable.
 							if ((hostName == null || "".equals(hostName)) && rawUrl.lastIndexOf("://") > rawUrl.lastIndexOf(":///")) {
 								try {
-									JMXServiceURL shortUrl = new JMXServiceURL(rawUrl.substring(0, rawUrl.indexOf(":///"))
-											                             + rawUrl.substring(rawUrl.lastIndexOf("://")));
+									JMXServiceURL shortUrl =
+											new JMXServiceURL(rawUrl.substring(0, rawUrl.indexOf(":///"))
+													                  + rawUrl.substring(rawUrl.lastIndexOf("://")));
 									hostName = shortUrl.getHost();
 									port = shortUrl.getPort();
 								} catch (MalformedURLException me) {
@@ -248,19 +249,6 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 					}
 				} else {
 					Collectd.logWarning("Excluding host definition no ServiceURL defined.");
-				}
-			} else if ("interval".equalsIgnoreCase(pluginChild.getKey())) {
-				try {
-					interval = pluginChild.getValues().get(0).getNumber().longValue();
-				} catch (Exception ex) {
-					ex.printStackTrace();
-					Collectd.logWarning("FastJMX plugin: " + "Could not parse Interval value. Defaulting to auto-detect.");
-				}
-			} else if ("intervalunit".equalsIgnoreCase(pluginChild.getKey())) {
-				try {
-					intervalUnit = TimeUnit.valueOf(pluginChild.getValues().get(0).getString());
-				} catch (Exception ex) {
-					Collectd.logWarning("FastJMX plugin: " + "Could not parse Interval Unit. Defaulting to SECONDS");
 				}
 			} else {
 				Collectd.logError("FastJMX plugin: " + "Unknown config option: " + pluginChild.getKey());
@@ -302,7 +290,6 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 
 		// Open connections.
 		for (Connection connectionEntry : connections) {
-			Collectd.logInfo("FastJMX plugin: Initiating org.collectd.Connection to: " + connectionEntry.rawUrl);
 			connectionEntry.connect();
 		}
 
@@ -324,36 +311,42 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	public int read() {
 		long start = System.nanoTime();
 
-		// Rollover in case we're -really- long running.
+		// Rollover in case we're _really_ long running.
 		if (reads++ == Long.MAX_VALUE) {
-			reads = 0;
+			reads = 1;
 		}
 
-		List<Future<AttributePermutation>> results = new ArrayList<Future<AttributePermutation>>();
+		// On the second cycle, and then every 10 read cycles, adjust the pool and interval.
+		if (reads == 2 || reads % 10 == 0) {
+			interval = TimeUnit.MILLISECONDS.convert(start - previousStart, TimeUnit.NANOSECONDS);
+			intervalUnit = TimeUnit.MILLISECONDS;
+			Collectd.logInfo("FastJMX plugin: Interval calculated at: " + interval + " " + intervalUnit);
+			synchronized (collectablePermutations) {
+				for (AttributePermutation collectable : collectablePermutations) {
+					collectable.setInterval(interval, intervalUnit);
+				}
+			}
+
+			mbeanExecutor.setCorePoolSize(Runtime.getRuntime().availableProcessors() * 2);
+			mbeanExecutor.setMaximumPoolSize(Math.max(Runtime.getRuntime().availableProcessors() * 2, connections.size()));
+			Collectd.logInfo("FastJMX plugin: Setting thread pool size " + mbeanExecutor.getCorePoolSize() + "~" + mbeanExecutor.getMaximumPoolSize());
+		}
+
+		// If we've detected an interval, invoke the attribute collectors with a maximum timeout of that interval period - 10 milliseconds.
+		List<Future<AttributePermutation>> results = null;
 		synchronized (collectablePermutations) {
 			try {
-				if (interval < 0) {
-					mbeanExecutor.setCorePoolSize(1);
-					mbeanExecutor.setMaximumPoolSize(1);
-
-					if (reads > 3) {
-						interval = start - previousStart;
-						intervalUnit = TimeUnit.NANOSECONDS;
-						Collectd.logInfo("FastJMX plugin: Setting auto-detected interval to " + TimeUnit.SECONDS.convert(interval, intervalUnit) + " seconds");
-						mbeanExecutor.setCorePoolSize(Runtime.getRuntime().availableProcessors() * 2);
-						mbeanExecutor.setMaximumPoolSize(Math.max(Runtime.getRuntime().availableProcessors() * 2, connections.size()));
-						Collectd.logInfo("FastJMX plugin: Setting thread pool size " + mbeanExecutor.getCorePoolSize() + "~" + mbeanExecutor.getMaximumPoolSize());
-					}
-				}
-
-				// Until we've been able to detect a
 				if (interval > 0) {
-					results = mbeanExecutor.invokeAll(collectablePermutations, interval, intervalUnit);
+					results = mbeanExecutor.invokeAll(collectablePermutations, TimeUnit.MILLISECONDS.convert(interval, intervalUnit) - 10, TimeUnit.MILLISECONDS);
 				} else {
 					results = mbeanExecutor.invokeAll(collectablePermutations);
 				}
 			} catch (InterruptedException ie) {
 				Collectd.logNotice("FastJMX plugin: Interrupted during read() cycle.");
+			} finally {
+				if (results == null) {
+					results = new ArrayList<Future<AttributePermutation>>(0);
+				}
 			}
 		}
 
@@ -375,7 +368,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 			}
 		}
 		long duration = System.nanoTime() - start;
-		Collectd.logInfo("FastJMX plugin: Read " + failed + "/" + cancelled + "/" + success + " in " + TimeUnit.MILLISECONDS.convert(duration, TimeUnit.NANOSECONDS) + "ms with: " + mbeanExecutor.getPoolSize() + " threads");
+		Collectd.logInfo("FastJMX plugin: [failed:" + failed + ", canceled:" + cancelled + ", successful:" + success + "] in " + TimeUnit.MILLISECONDS.convert(duration, TimeUnit.NANOSECONDS) + "ms with: " + mbeanExecutor.getPoolSize() + " threads");
 
 		previousStart = start;
 		return 0;
@@ -405,6 +398,33 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 
 
 	/**
+	 * Creates AttributePermutations for the given connection, querying the remote MBeanServer for ObjectNames matching
+	 * defined collect attributes for the connection.
+	 *
+	 * @param connection The Connection to create permutations and start collecting.
+	 */
+	private void createPermutations(final Connection connection) {
+		Collectd.logDebug("FastJMX plugin: Creating AttributePermutations for " + connection.rawUrl);
+		// Create the org.collectd.AttributePermutation objects appropriate for this org.collectd.Connection.
+		synchronized (attributes) {
+			for (Attribute attrib : attributes) {
+				// If the host is supposed to collect this attribute, look for matching objectNames on the host.
+				if (connection.beanAliases.contains(attrib.beanAlias)) {
+					Collectd.logDebug("FastJMX plugin: Looking for " + attrib.findName + " @ " + connection.rawUrl);
+					try {
+						Set<ObjectName> instances =
+								connection.getServerConnection().queryNames(attrib.findName, null);
+						Collectd.logDebug("FastJMX plugin: Found " + instances.size() + " instances of " + attrib.findName + " @ " + connection.rawUrl);
+						collectablePermutations.addAll(AttributePermutation.create(instances.toArray(new ObjectName[instances.size()]), connection, attrib, interval, intervalUnit));
+					} catch (IOException ioe) {
+						Collectd.logError("FastJMX plugin: Failed to find " + attrib.findName + " @ " + connection.rawUrl + " Exception message: " + ioe.getMessage());
+					}
+				}
+			}
+		}
+	}
+
+	/**
 	 * Removes all AttributePermutations for the given collection from our list of things to collect in a read cycle.
 	 *
 	 * @param connection The Connection to no longer collect.
@@ -424,33 +444,6 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	}
 
 	/**
-	 * Creates AttributePermutations for the given connection, querying the remote MBeanServer for ObjectNames matching
-	 * defined collect attributes for the connection.
-	 *
-	 * @param connection The Connection to create permutations and start collecting.
-	 */
-	private void createPermutations(final Connection connection) {
-		Collectd.logDebug("FastJMX plugin: Creating AttributePermutations for " + connection.rawUrl);
-		// Create the org.collectd.AttributePermutation objects appropriate for this org.collectd.Connection.
-		synchronized (attributes) {
-			for (Attribute attrib : attributes) {
-				// If the host is supposed to collect this attribute, look for matching objectNames on the host.
-				if (connection.beanAliases.contains(attrib.beanAlias)) {
-					Collectd.logDebug("FastJMX plugin: Looking for " + attrib.findName + " @ " + connection.rawUrl);
-					try {
-						Set<ObjectName> instances =
-								connection.getServerConnection().queryNames(attrib.findName, null);
-						Collectd.logDebug("FastJMX plugin: Found " + instances.size() + " instances of " + attrib.findName + " @ " + connection.rawUrl);
-						collectablePermutations.addAll(AttributePermutation.create(instances.toArray(new ObjectName[instances.size()]), connection, attrib));
-					} catch (IOException ioe) {
-						Collectd.logError("FastJMX plugin: Failed to find " + attrib.findName + " @ " + connection.rawUrl + " Exception message: " + ioe.getMessage());
-					}
-				}
-			}
-		}
-	}
-
-	/**
 	 * Creates AttributePermutations matching the connection and objectName.
 	 *
 	 * @param connection The Connection.
@@ -462,7 +455,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 			for (Attribute attribute : attributes) {
 				// If the host is supposed to collect this attribute, and the objectName matches the attribute, add the permutation.
 				if (connection.beanAliases.contains(attribute.beanAlias) && attribute.findName.apply(objectName)) {
-					collectablePermutations.addAll(AttributePermutation.create(new ObjectName[]{objectName}, connection, attribute));
+					collectablePermutations.addAll(AttributePermutation.create(new ObjectName[]{objectName}, connection, attribute, interval, intervalUnit));
 				}
 			}
 		}
@@ -502,8 +495,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 				removePermutations(connection);
 				createPermutations(connection);
 			} else if (notification.getType().equals(JMXConnectionNotification.CLOSED) ||
-					           notification.getType().equals(JMXConnectionNotification.FAILED))
-			{
+					           notification.getType().equals(JMXConnectionNotification.FAILED)) {
 				// Remove the permutations and reconnect.
 				removePermutations(connection);
 				connection.connect();
@@ -527,7 +519,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 * @param ci
 	 * @return The string, or <code>null</code> if no string is found.
 	 */
-	private String getConfigString(OConfigItem ci) {
+	private static String getConfigString(final OConfigItem ci) {
 		List<OConfigValue> values;
 		OConfigValue v;
 
@@ -551,7 +543,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 * @param ci
 	 * @return The Boolean value, or <code>null</code> if no boolean is found.
 	 */
-	private Boolean getConfigBoolean(OConfigItem ci) {
+	private static Boolean getConfigBoolean(final OConfigItem ci) {
 		List<OConfigValue> values;
 		OConfigValue v;
 		Boolean b;

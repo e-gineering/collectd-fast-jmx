@@ -102,7 +102,7 @@ public class Connection implements NotificationListener {
 	 * @param notification
 	 * @param handback
 	 */
-	public void handleNotification(Notification notification, Object handback) {
+	public void handleNotification(final Notification notification, final Object handback) {
 		if (notification instanceof JMXConnectionNotification) {
 			if (notification.getType().equals(JMXConnectionNotification.CLOSED) ||
 					    notification.getType().equals(JMXConnectionNotification.FAILED)) {
@@ -131,7 +131,7 @@ public class Connection implements NotificationListener {
 	}
 
 	@Override
-	public boolean equals(Object obj) {
+	public boolean equals(final Object obj) {
 		if (this == obj) {
 			return true;
 		} else if (obj instanceof Connection) {
@@ -149,7 +149,7 @@ public class Connection implements NotificationListener {
 	private class ConnectTask extends TimerTask {
 		private int connectBackoff = 0;
 
-		private ConnectTask(int backoffSeconds) {
+		private ConnectTask(final int backoffSeconds) {
 			this.connectBackoff = backoffSeconds;
 		}
 
@@ -160,7 +160,7 @@ public class Connection implements NotificationListener {
 		@Override
 		public void run() {
 			this.cancel();
-			Collectd.logDebug("FastJMX plugin: ConnectTask started for: " + rawUrl + " delayed " + connectBackoff);
+			Collectd.logInfo("FastJMX plugin: Connecting to: " + rawUrl);
 
 			if (connectBackoff == 0) {
 				connectBackoff = 5;
@@ -190,6 +190,7 @@ public class Connection implements NotificationListener {
 				} catch (IOException ioe) {
 					Collectd.logWarning("FastJMX plugin: Could not connect to : " + rawUrl + " exception message: " + ioe.getMessage());
 					close();
+					Collectd.logNotice("FastJMX plugin: Scheduling reconnect to: " + rawUrl + " in " + connectBackoff + " seconds.");
 					ConnectTask backoffConnect = new ConnectTask(connectBackoff);
 					connectTimer.schedule(backoffConnect, backoffConnect.getDelay());
 				}
