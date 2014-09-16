@@ -17,6 +17,7 @@ import javax.management.ObjectName;
 import javax.management.remote.JMXConnectionNotification;
 import javax.management.remote.JMXServiceURL;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.net.MalformedURLException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -42,21 +43,30 @@ import java.util.concurrent.TimeUnit;
  */
 public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, CollectdReadInterface, CollectdShutdownInterface, NotificationListener {
 
-	private static long reconnectCount = 0;
-	private static long threadCount = 0;
-
 	private long reads = 0;
 	private long interval = 0l;
 	private TimeUnit intervalUnit = TimeUnit.MILLISECONDS;
-	private long previousStart = System.nanoTime();
+	private Ring<History> histogram = new Ring<History>(50);
 
-	private ThreadPoolExecutor mbeanExecutor;
+	private static ThreadGroup fastJMXThreads = new ThreadGroup("FastJMX");
+	private static ThreadGroup mbeanReaders = new ThreadGroup(fastJMXThreads, "MbeanReaders");
+	private static ThreadPoolExecutor mbeanExecutor =
+			new ThreadPoolExecutor(1, 1, 10, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>(), new FastJMXThreadFactory());
+	private int maxCoreThreads = -1;
 
-	private List<Attribute> attributes = Collections.synchronizedList(new ArrayList<Attribute>());
-	private HashSet<Connection> connections = new HashSet<Connection>();
+	private int thresholdDetection = -1;
+	private static double correlationTarget = -0.25;
 
-	private Set<AttributePermutation> collectablePermutations =
-			Collections.synchronizedSet(new HashSet<AttributePermutation>());
+	private static List<Attribute> attributes = new ArrayList<Attribute>();
+	private static HashSet<Connection> connections = new HashSet<Connection>();
+
+	private static List<AttributePermutation> collectablePermutations =
+			Collections.synchronizedList(new ArrayList<AttributePermutation>(100));
+
+	static {
+		System.getProperties().put("sun.rmi.transport.tcp.connectTimeout", TimeUnit.MILLISECONDS.convert(10, TimeUnit.SECONDS));
+		System.getProperties().put("sun.rmi.transport.tcp.handshakeTimeout", TimeUnit.MILLISECONDS.convert(10, TimeUnit.SECONDS));
+	}
 
 	public FastJMX() {
 		Collectd.registerConfig("FastJMX", this);
@@ -269,29 +279,15 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 * @return
 	 */
 	public int init() {
-		// Configure the ThreadGroups and pools.
-		ThreadGroup fastJMXThreads = new ThreadGroup("FastJMX");
-		fastJMXThreads.setMaxPriority(Thread.MAX_PRIORITY);
-
-		final ThreadGroup mbeanReaders = new ThreadGroup(fastJMXThreads, "MbeanReaders");
-		mbeanExecutor = new ThreadPoolExecutor(1, 1, 60, TimeUnit.SECONDS,
-				                                      new LinkedBlockingQueue<Runnable>(),
-				                                      new ThreadFactory() {
-					                                      public Thread newThread(Runnable r) {
-						                                      Thread t =
-								                                      new Thread(mbeanReaders, r, "mbean-reader-" + threadCount++);
-						                                      t.setDaemon(mbeanReaders.isDaemon());
-						                                      t.setPriority(Thread.MAX_PRIORITY - 2);
-						                                      return t;
-					                                      }
-				                                      });
-		mbeanExecutor.allowCoreThreadTimeOut(false);
-		mbeanExecutor.prestartAllCoreThreads();
+		mbeanExecutor.allowCoreThreadTimeOut(true);
 
 		// Open connections.
 		for (Connection connectionEntry : connections) {
 			connectionEntry.connect();
 		}
+
+		// Seed an initial empty history
+		histogram.push(new History(0, 0, 0, 0, System.nanoTime(), System.nanoTime()));
 
 		return 0;
 	}
@@ -309,68 +305,165 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 * @return
 	 */
 	public int read() {
-		long start = System.nanoTime();
+		try {
+			long start = System.nanoTime();
 
-		// Rollover in case we're _really_ long running.
-		if (reads++ == Long.MAX_VALUE) {
-			reads = 1;
-		}
+			// Rollover in case we're _really_ long running.
+			if (reads++ == Long.MAX_VALUE) {
+				reads = 1;
+			}
 
-		// On the second cycle, and then every 10 read cycles, adjust the pool and interval.
-		if (reads == 2 || reads % 10 == 0) {
-			interval = TimeUnit.MILLISECONDS.convert(start - previousStart, TimeUnit.NANOSECONDS);
+			interval = TimeUnit.MILLISECONDS.convert((start - histogram.peek().started), TimeUnit.NANOSECONDS);
 			intervalUnit = TimeUnit.MILLISECONDS;
-			Collectd.logInfo("FastJMX plugin: Interval calculated at: " + interval + " " + intervalUnit);
+
+			// Adjust the keepalive time.
+			if (interval * 2 > 0) {
+				mbeanExecutor.setKeepAliveTime(interval * 2, intervalUnit);
+			}
+
+			List<Future<AttributePermutation>> results = new ArrayList<Future<AttributePermutation>>(0);
 			synchronized (collectablePermutations) {
-				for (AttributePermutation collectable : collectablePermutations) {
-					collectable.setInterval(interval, intervalUnit);
+				if (!collectablePermutations.isEmpty()) {
+
+					Collections.sort(collectablePermutations);
+
+					// Target collection within 50% of the interval.
+					long targetTime = TimeUnit.NANOSECONDS.convert((long) (0.5 * interval), intervalUnit);
+
+					int slowestReasonableIdx = -1;  // Items which cannot complete within the targetTime.
+					AttributePermutation slowestReasonable = null;
+
+					int queuableIdx = -1; // Items which can complete within the targetTime even after being queued.
+
+					long estimatedEffort = 0; // Best-guess Estimate on the remaining effort needed to execute items after the queueableIdx.
+					long knownEfforts = 0;
+					long unknownEffort = 0;
+
+					for (int i = 0; i < collectablePermutations.size(); i++) {
+						AttributePermutation ap = collectablePermutations.get(i);
+						ap.setInterval(interval, intervalUnit);
+
+						// Find the index of the first item that can run before targetTime.
+						if (slowestReasonableIdx == -1 && ap.getLastRunDuration() <= targetTime) {
+							slowestReasonableIdx = i;
+							slowestReasonable = ap;
+						}
+
+						// Find the index of the first item that could run on the same thread as the slowestReasonable, and still complete before targetTime.
+						if (slowestReasonableIdx >= 0 && queuableIdx == -1 &&
+								    ap.getLastRunDuration() + slowestReasonable.getLastRunDuration() <= targetTime) {
+							queuableIdx = i;
+						}
+
+						if (ap.getLastRunDuration() > 0) {
+							estimatedEffort += ap.getLastRunDuration();
+							knownEfforts++;
+						} else {
+							unknownEffort++;
+						}
+					}
+
+					// Assuming we set threadsRequired = queueableIds how much effort will remain to be calculated?
+					int requiredThreads = queuableIdx;
+
+					// Get the mean time for the known runs from the last cycle, and use that to calculate the
+					// times expected for the unknown efforts.
+					estimatedEffort += (estimatedEffort / Math.max(knownEfforts, 1)) * unknownEffort;
+
+					// Now account for the threads.
+					estimatedEffort = estimatedEffort - (requiredThreads * targetTime);
+
+					// How many threads should we have to finish by targetTime?
+					requiredThreads += (int) Math.ceil((double) estimatedEffort / targetTime);
+
+					// Once we've done a regressive analysis, clamp the requiredThreads to this limit.
+					int max = maxCoreThreads;
+					if (max > 0) {
+						requiredThreads = max;
+					} else {
+						max = requiredThreads;
+					}
+
+					Collectd.logDebug("FastJMX plugin: Calculated requiredThreads: " + requiredThreads + ", maxThreads: " + max);
+
+					if (requiredThreads > 0) {
+						mbeanExecutor.setCorePoolSize(requiredThreads);
+					}
+					if (max > 0) {
+						mbeanExecutor.setMaximumPoolSize(max);
+					}
+
+					try {
+						if (interval > 0) {
+							results =
+									mbeanExecutor.invokeAll(collectablePermutations, TimeUnit.MILLISECONDS.convert(interval, intervalUnit) - 10, TimeUnit.MILLISECONDS);
+						} else {
+							results = mbeanExecutor.invokeAll(collectablePermutations);
+						}
+					} catch (InterruptedException ie) {
+						Collectd.logNotice("FastJMX plugin: Interrupted during read() cycle.");
+					}
 				}
 			}
 
-			mbeanExecutor.setCorePoolSize(Runtime.getRuntime().availableProcessors() * 2);
-			mbeanExecutor.setMaximumPoolSize(Math.max(Runtime.getRuntime().availableProcessors() * 2, connections.size()));
-			Collectd.logInfo("FastJMX plugin: Setting thread pool size " + mbeanExecutor.getCorePoolSize() + "~" + mbeanExecutor.getMaximumPoolSize());
-		}
+			int failed = 0;
+			int cancelled = 0;
+			int success = 0;
+			for (Future<AttributePermutation> result : results) {
+				try {
+					Collectd.logDebug("FastJMX plugin: Read " + result.get().getObjectName() + " @ " + result.get().getConnection().rawUrl + " : " + result.get().getLastRunDuration());
+					success++;
+				} catch (ExecutionException ex) {
+					failed++;
+					Collectd.logError("FastJMX plugin: Failed " + ex.getCause());
+				} catch (CancellationException ce) {
+					cancelled++;
+				} catch (InterruptedException ie) {
+					Collectd.logDebug("FastJMX plugin: Interrupted while doing post-read interrogation.");
+					break;
+				}
+			}
 
-		// If we've detected an interval, invoke the attribute collectors with a maximum timeout of that interval period - 10 milliseconds.
-		List<Future<AttributePermutation>> results = null;
-		synchronized (collectablePermutations) {
-			try {
-				if (interval > 0) {
-					results = mbeanExecutor.invokeAll(collectablePermutations, TimeUnit.MILLISECONDS.convert(interval, intervalUnit) - 10, TimeUnit.MILLISECONDS);
+			histogram.push(new History(failed, cancelled, success, mbeanExecutor.getCorePoolSize(), start, System.nanoTime()));
+			Collectd.logDebug("FastJMX plugin: histogram.push: " + histogram.peek());
+
+			// Calculate a Pearson Correlation for poolSize to duration in the histogram.
+			double threadEfficiency = correlate("poolSize", "duration");
+
+			// thresholdDetection holds an int, which tells us if we need to search down, up, or we've hit the sweet spot.
+			if (thresholdDetection != 0) {
+
+				// Get the average size of the poolSize which resulted in this correlation.
+				int average = (int) Math.round(average("poolSize"));
+
+				// We just violated the threshold (on the way back 'up' from a previous search 'down')
+				if (thresholdDetection == 1 && threadEfficiency > correlationTarget) {
+					thresholdDetection = 0;
+					maxCoreThreads = average;
+					Collectd.logDebug("FastJMX plugin: Identified practical pool limit while searching 'up': " + maxCoreThreads);
 				} else {
-					results = mbeanExecutor.invokeAll(collectablePermutations);
-				}
-			} catch (InterruptedException ie) {
-				Collectd.logNotice("FastJMX plugin: Interrupted during read() cycle.");
-			} finally {
-				if (results == null) {
-					results = new ArrayList<Future<AttributePermutation>>(0);
-				}
-			}
-		}
+					if (thresholdDetection == -1 && threadEfficiency < correlationTarget) {
+						// We just identified the 'low' point.
+						thresholdDetection = 1; // switch direction!
+						Collectd.logDebug("FastJMX plugin: threadEfficiency: " + threadEfficiency + " < " + correlationTarget + " found while searching 'down'. Switching directions.");
+					}
 
-		int failed = 0;
-		int cancelled = 0;
-		int success = 0;
-		for (Future<AttributePermutation> result : results) {
-			try {
-				Collectd.logDebug("FastJMX plugin: Read " + result.get().getObjectName() + " @ " + result.get().getConnection().rawUrl + " : " + result.get().getLastRunDuration());
-				success++;
-			} catch (ExecutionException ex) {
-				failed++;
-				Collectd.logError("FastJMX plugin: Failed " + ex.getCause());
-			} catch (CancellationException ce) {
-				cancelled++;
-			} catch (InterruptedException ie) {
-				Collectd.logDebug("FastJMX plugin: Interrupted while doing post-read interrogation.");
-				break;
+					// Add threads to influence the correlation value.
+					maxCoreThreads += Runtime.getRuntime().availableProcessors();
+					Collectd.logDebug("FastJMX plugin: threadEfficiency: " + threadEfficiency + " targeting: " + correlationTarget + " searching: " + (thresholdDetection > 0 ? "up" : "down"));
+				}
+			} else if (histogram.peek().cancelled > 0) {
+				// Start the search over.
+				if (threadEfficiency > correlationTarget) {
+					thresholdDetection = 1;
+				} else {
+					thresholdDetection = -1;
+				}
+				Collectd.logDebug("FastJMX plugin: cancellation with thread efficiency: " + threadEfficiency + " set thresholdDetection: " + thresholdDetection);
 			}
+		} catch (Throwable t) {
+			Collectd.logError("FastJMX plugin: Unexpected Throwable: " + t);
 		}
-		long duration = System.nanoTime() - start;
-		Collectd.logInfo("FastJMX plugin: [failed:" + failed + ", canceled:" + cancelled + ", successful:" + success + "] in " + TimeUnit.MILLISECONDS.convert(duration, TimeUnit.NANOSECONDS) + "ms with: " + mbeanExecutor.getPoolSize() + " threads");
-
-		previousStart = start;
 		return 0;
 	}
 
@@ -396,7 +489,6 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 		return 0;
 	}
 
-
 	/**
 	 * Creates AttributePermutations for the given connection, querying the remote MBeanServer for ObjectNames matching
 	 * defined collect attributes for the connection.
@@ -406,19 +498,17 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	private void createPermutations(final Connection connection) {
 		Collectd.logDebug("FastJMX plugin: Creating AttributePermutations for " + connection.rawUrl);
 		// Create the org.collectd.AttributePermutation objects appropriate for this org.collectd.Connection.
-		synchronized (attributes) {
-			for (Attribute attrib : attributes) {
-				// If the host is supposed to collect this attribute, look for matching objectNames on the host.
-				if (connection.beanAliases.contains(attrib.beanAlias)) {
-					Collectd.logDebug("FastJMX plugin: Looking for " + attrib.findName + " @ " + connection.rawUrl);
-					try {
-						Set<ObjectName> instances =
-								connection.getServerConnection().queryNames(attrib.findName, null);
-						Collectd.logDebug("FastJMX plugin: Found " + instances.size() + " instances of " + attrib.findName + " @ " + connection.rawUrl);
-						collectablePermutations.addAll(AttributePermutation.create(instances.toArray(new ObjectName[instances.size()]), connection, attrib, interval, intervalUnit));
-					} catch (IOException ioe) {
-						Collectd.logError("FastJMX plugin: Failed to find " + attrib.findName + " @ " + connection.rawUrl + " Exception message: " + ioe.getMessage());
-					}
+		for (Attribute attrib : attributes) {
+			// If the host is supposed to collect this attribute, look for matching objectNames on the host.
+			if (connection.beanAliases.contains(attrib.beanAlias)) {
+				Collectd.logDebug("FastJMX plugin: Looking for " + attrib.findName + " @ " + connection.rawUrl);
+				try {
+					Set<ObjectName> instances =
+							connection.getServerConnection().queryNames(attrib.findName, null);
+					Collectd.logDebug("FastJMX plugin: Found " + instances.size() + " instances of " + attrib.findName + " @ " + connection.rawUrl);
+					collectablePermutations.addAll(AttributePermutation.create(instances.toArray(new ObjectName[instances.size()]), connection, attrib, interval, intervalUnit));
+				} catch (IOException ioe) {
+					Collectd.logError("FastJMX plugin: Failed to find " + attrib.findName + " @ " + connection.rawUrl + " Exception message: " + ioe.getMessage());
 				}
 			}
 		}
@@ -451,12 +541,10 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 *                   the connection.
 	 */
 	private void createPermutations(final Connection connection, final ObjectName objectName) {
-		synchronized (attributes) {
-			for (Attribute attribute : attributes) {
-				// If the host is supposed to collect this attribute, and the objectName matches the attribute, add the permutation.
-				if (connection.beanAliases.contains(attribute.beanAlias) && attribute.findName.apply(objectName)) {
-					collectablePermutations.addAll(AttributePermutation.create(new ObjectName[]{objectName}, connection, attribute, interval, intervalUnit));
-				}
+		for (Attribute attribute : attributes) {
+			// If the host is supposed to collect this attribute, and the objectName matches the attribute, add the permutation.
+			if (connection.beanAliases.contains(attribute.beanAlias) && attribute.findName.apply(objectName)) {
+				collectablePermutations.addAll(AttributePermutation.create(new ObjectName[]{objectName}, connection, attribute, interval, intervalUnit));
 			}
 		}
 	}
@@ -559,5 +647,102 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 		}
 
 		return (new Boolean(v.getBoolean()));
+	}
+
+	private class History {
+		long started = 0;
+		long ended = 0;
+		long duration = 0;
+		int poolSize = 0;
+		int failed = 0;
+		int cancelled = 0;
+		int success = 0;
+		int total = 0;
+
+		public History(final int failed, final int cancelled, final int success, final int poolSize, final long started, final long ended) {
+			this.failed = failed;
+			this.cancelled = cancelled;
+			this.success = success;
+			this.poolSize = poolSize;
+			this.started = started;
+			this.ended = ended;
+			this.total = failed + cancelled + success;
+			this.duration = ended - started;
+		}
+
+		public String toString() {
+			return "[failed: " + failed + ", canceled: " + cancelled + ", success: " + success + "] Took " + TimeUnit.MILLISECONDS.convert(duration, TimeUnit.NANOSECONDS) + "ms in a pool of " + poolSize + " threads.";
+		}
+	}
+
+	private double average(String fielda) {
+		double total = 0;
+		try {
+			Field afield = History.class.getDeclaredField(fielda);
+
+			for (int i = 0; i < histogram.size(); i++) {
+				total += afield.getDouble(histogram.get(i));
+			}
+			if (total > 0) {
+				return total / histogram.size();
+			}
+		} catch (Exception ex) {
+
+		}
+		return 0;
+	}
+
+	private double correlate(String fielda, String fieldb) {
+		try {
+			Field afield = History.class.getDeclaredField(fielda);
+			Field bfield = History.class.getDeclaredField(fieldb);
+
+			double[][] dataPoints = new double[histogram.size()][7];
+			double aTotal = 0;
+			double bTotal = 0;
+			for (int i = 0; i < dataPoints.length; i++) {
+				dataPoints[i][0] = afield.getDouble(histogram.get(i));
+				dataPoints[i][1] = bfield.getDouble(histogram.get(i));
+				aTotal += dataPoints[i][0];
+				bTotal += dataPoints[i][1];
+			}
+
+			double aMean = aTotal / dataPoints.length;
+			double bMean = bTotal / dataPoints.length;
+
+			double abTotal = 0;
+			double asTotal = 0;
+			double bsTotal = 0;
+
+			for (int i = 0; i < dataPoints.length; i++) {
+				dataPoints[i][2] = dataPoints[i][0] - aMean;
+				dataPoints[i][3] = dataPoints[i][1] - bMean;
+				dataPoints[i][4] = dataPoints[i][2] * dataPoints[i][3];
+				dataPoints[i][5] = dataPoints[i][2] * dataPoints[i][2];
+				dataPoints[i][6] = dataPoints[i][3] * dataPoints[i][3];
+
+				abTotal += dataPoints[i][4];
+				asTotal += dataPoints[i][5];
+				bsTotal += dataPoints[i][6];
+			}
+
+			if (abTotal != 0 && asTotal != 0 && bsTotal != 0) {
+				return (abTotal / Math.sqrt(asTotal * bsTotal));
+			}
+		} catch (Exception ex) {
+			Collectd.logError(ex.toString());
+		}
+		return 0.00;
+	}
+
+	private static class FastJMXThreadFactory implements ThreadFactory {
+		private int threadCount = 0;
+
+		public Thread newThread(Runnable r) {
+			Thread t = new Thread(mbeanReaders, r, "mbean-reader-" + threadCount++);
+			t.setDaemon(mbeanReaders.isDaemon());
+			t.setPriority(Thread.MAX_PRIORITY - 2);
+			return t;
+		}
 	}
 }

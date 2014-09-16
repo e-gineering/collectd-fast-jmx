@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * Defines an actual permutation of an org.collectd.Attribute to be read from a org.collectd.Connection.
  */
-public class AttributePermutation implements Callable<AttributePermutation> {
+public class AttributePermutation implements Callable<AttributePermutation>, Comparable<AttributePermutation> {
 	private ObjectName objectName;
 	private Connection connection;
 	private Attribute attribute;
@@ -31,6 +31,7 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 	private ValueList valueList;
 
 	private long lastRunDuration = 0l;
+	private boolean interruptedOrFailed = false;
 
 	private AttributePermutation(final ObjectName objectName, final Connection connection, final Attribute attribute, final PluginData pd, final ValueList vl) {
 		this.objectName = objectName;
@@ -140,6 +141,26 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 		this.valueList.setInterval(TimeUnit.MILLISECONDS.convert(value, timeUnit));
 	}
 
+	public int compareTo(final AttributePermutation o) {
+		int i = -1 * Long.compare(lastRunDuration, o.lastRunDuration);
+		if (i != 0) {
+			return i;
+		}
+
+		return Integer.compare(hashCode(), o.hashCode());
+	}
+
+	@Override
+	public boolean equals(Object obj) {
+		if (this == obj) {
+			return true;
+		} else if (obj instanceof AttributePermutation) {
+			return hashCode() == obj.hashCode();
+		} else {
+			return false;
+		}
+	}
+
 	@Override
 	public int hashCode() {
 		return (connection.hostname + connection.rawUrl + objectName.toString() + pluginData.getSource() + valueList.getType()).hashCode();
@@ -153,6 +174,11 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 	 */
 	public AttributePermutation call() throws Exception {
 		long start = System.nanoTime();
+		// Snapshot the value list for this 'call', Value lists are built at the end of the call(),
+		// and if another thread call()s while this one is still running, it could trounce the interval
+		// and report back duplicates to collectd.
+		ValueList callVal = new ValueList(this.valueList);
+		interruptedOrFailed = true;
 		try {
 			MBeanServerConnection mbs = connection.getServerConnection();
 
@@ -212,18 +238,19 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 				}
 
 				for (String key : keys) {
-					ValueList vl = new ValueList(this.valueList);
+					ValueList vl = new ValueList(callVal);
 					vl.setTypeInstance(vl.getTypeInstance() + key);
 					vl.setValues(genericCompositeToNumber(cdList, key));
 					Collectd.logDebug("FastJMX plugin: dispatch " + vl);
 					Collectd.dispatchValues(vl);
 				}
 			} else {
-				ValueList vl = new ValueList(this.valueList);
+				ValueList vl = new ValueList(callVal);
 				vl.setValues(genericListToNumber(values));
 				Collectd.logDebug("FastJMX plugin: dispatch " + vl);
 				Collectd.dispatchValues(vl);
 			}
+			interruptedOrFailed = false;
 		} catch (IOException ioe) {
 			throw ioe;
 		} catch (Exception ex) {
@@ -236,7 +263,10 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 	}
 
 	public long getLastRunDuration() {
-		return lastRunDuration;
+		if (!interruptedOrFailed) {
+			return lastRunDuration;
+		}
+		return 0l;
 	}
 
 	private List<Number> genericCompositeToNumber(final List<CompositeData> cdlist, final String key) {
