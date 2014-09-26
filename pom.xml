@@ -13,6 +13,16 @@
 
     <description>A collectd plugin for lower-latency JMX operations.</description>
     <url>http://github.com/bvarner/collectd-fast-jmx</url>
+    
+    <dependencies>
+    	<dependency>
+    		<groupId>org.collectd</groupId>
+    		<artifactId>collectd-api</artifactId>
+    		<version>1.0</version>
+    		<scope>system</scope>    		
+        	<systemPath>${basedir}/lib/collectd-api.jar</systemPath>
+    	</dependency>
+    </dependencies>
 
     <build>
         <plugins>
@@ -31,32 +41,12 @@
                 <configuration>
                     <encoding>${project.build.sourceEncoding}</encoding>
                 </configuration>
-            </plugin>
-
-            <plugin>
-                <groupId>com.googlecode.addjars-maven-plugin</groupId>
-                <artifactId>addjars-maven-plugin</artifactId>
-                <version>1.0.5</version>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>add-jars</goal>
-                        </goals>
-                        <configuration>
-                            <resources>
-                                <resource>
-                                    <directory>${project.basedir}/lib</directory>
-                                </resource>
-                            </resources>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
+            </plugin>            
         </plugins>
     </build>
     <properties>
         <maven.compiler.source>1.5</maven.compiler.source>
         <maven.compiler.target>1.5</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    </properties>
+    </properties>    
 </project>
