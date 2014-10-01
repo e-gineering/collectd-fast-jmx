@@ -1,5 +1,19 @@
 package org.collectd;
 
+import org.apache.commons.math3.analysis.differentiation.DerivativeStructure;
+import org.apache.commons.math3.analysis.interpolation.HermiteInterpolator;
+import org.apache.commons.math3.analysis.interpolation.NevilleInterpolator;
+import org.apache.commons.math3.analysis.polynomials.PolynomialFunctionLagrangeForm;
+import org.apache.commons.math3.analysis.polynomials.PolynomialSplineFunction;
+import org.apache.commons.math3.analysis.solvers.AllowedSolution;
+import org.apache.commons.math3.analysis.solvers.BracketingNthOrderBrentSolver;
+import org.apache.commons.math3.analysis.solvers.BrentSolver;
+import org.apache.commons.math3.optim.MaxEval;
+import org.apache.commons.math3.optim.MaxIter;
+import org.apache.commons.math3.optim.nonlinear.scalar.GoalType;
+import org.apache.commons.math3.optim.univariate.BrentOptimizer;
+import org.apache.commons.math3.optim.univariate.SearchInterval;
+import org.apache.commons.math3.optim.univariate.UnivariateObjectiveFunction;
 import org.collectd.api.Collectd;
 import org.collectd.api.CollectdConfigInterface;
 import org.collectd.api.CollectdInitInterface;
@@ -20,9 +34,14 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.net.MalformedURLException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
@@ -46,16 +65,14 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	private long reads = 0;
 	private long interval = 0l;
 	private TimeUnit intervalUnit = TimeUnit.MILLISECONDS;
-	private Ring<History> histogram = new Ring<History>(50);
+	private Ring<History> histogram = new Ring<History>(15);
 
 	private static ThreadGroup fastJMXThreads = new ThreadGroup("FastJMX");
 	private static ThreadGroup mbeanReaders = new ThreadGroup(fastJMXThreads, "MbeanReaders");
 	private static ThreadPoolExecutor mbeanExecutor =
 			new ThreadPoolExecutor(1, 1, 10, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>(), new FastJMXThreadFactory());
 	private int maxCoreThreads = -1;
-
-	private int thresholdDetection = -1;
-	private static double correlationTarget = -0.25;
+	private int forcePoolGrowth = 0;
 
 	private static List<Attribute> attributes = new ArrayList<Attribute>();
 	private static HashSet<Connection> connections = new HashSet<Connection>();
@@ -363,7 +380,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 						}
 					}
 
-					// Assuming we set threadsRequired = queueableIds how much effort will remain to be calculated?
+					// Assuming we set threadsRequired = queueableIdx, how much effort will remain to be calculated?
 					int requiredThreads = queuableIdx;
 
 					// Get the mean time for the known runs from the last cycle, and use that to calculate the
@@ -374,7 +391,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 					estimatedEffort = estimatedEffort - (requiredThreads * targetTime);
 
 					// How many threads should we have to finish by targetTime?
-					requiredThreads += (int) Math.ceil((double) estimatedEffort / targetTime);
+					requiredThreads += (int) Math.ceil((double) estimatedEffort / targetTime) + forcePoolGrowth;
 
 					// Once we've done a regressive analysis, clamp the requiredThreads to this limit.
 					int max = maxCoreThreads;
@@ -384,7 +401,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 						max = requiredThreads;
 					}
 
-					Collectd.logDebug("FastJMX plugin: Calculated requiredThreads: " + requiredThreads + ", maxThreads: " + max);
+					Collectd.logInfo("FastJMX plugin: Calculated requiredThreads: " + requiredThreads + ", maxThreads: " + max);
 
 					if (requiredThreads > 0) {
 						mbeanExecutor.setCorePoolSize(requiredThreads);
@@ -425,42 +442,13 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 			}
 
 			histogram.push(new History(failed, cancelled, success, mbeanExecutor.getCorePoolSize(), start, System.nanoTime()));
-			Collectd.logDebug("FastJMX plugin: histogram.push: " + histogram.peek());
+			Collectd.logInfo("FastJMX plugin: histogram.push: " + histogram.peek());
 
 			// Calculate a Pearson Correlation for poolSize to duration in the histogram.
-			double threadEfficiency = correlate("poolSize", "duration");
+			double threadEfficiency = threadEfficiency();
+			Collectd.logInfo("FastJMX plugin: threadEfficiency: " + threadEfficiency);
 
-			// thresholdDetection holds an int, which tells us if we need to search down, up, or we've hit the sweet spot.
-			if (thresholdDetection != 0) {
-
-				// Get the average size of the poolSize which resulted in this correlation.
-				int average = (int) Math.round(average("poolSize"));
-
-				// We just violated the threshold (on the way back 'up' from a previous search 'down')
-				if (thresholdDetection == 1 && threadEfficiency > correlationTarget) {
-					thresholdDetection = 0;
-					maxCoreThreads = average;
-					Collectd.logDebug("FastJMX plugin: Identified practical pool limit while searching 'up': " + maxCoreThreads);
-				} else {
-					if (thresholdDetection == -1 && threadEfficiency < correlationTarget) {
-						// We just identified the 'low' point.
-						thresholdDetection = 1; // switch direction!
-						Collectd.logDebug("FastJMX plugin: threadEfficiency: " + threadEfficiency + " < " + correlationTarget + " found while searching 'down'. Switching directions.");
-					}
-
-					// Add threads to influence the correlation value.
-					maxCoreThreads += Runtime.getRuntime().availableProcessors();
-					Collectd.logDebug("FastJMX plugin: threadEfficiency: " + threadEfficiency + " targeting: " + correlationTarget + " searching: " + (thresholdDetection > 0 ? "up" : "down"));
-				}
-			} else if (histogram.peek().cancelled > 0) {
-				// Start the search over.
-				if (threadEfficiency > correlationTarget) {
-					thresholdDetection = 1;
-				} else {
-					thresholdDetection = -1;
-				}
-				Collectd.logDebug("FastJMX plugin: cancellation with thread efficiency: " + threadEfficiency + " set thresholdDetection: " + thresholdDetection);
-			}
+			interpolate();
 		} catch (Throwable t) {
 			Collectd.logError("FastJMX plugin: Unexpected Throwable: " + t);
 		}
@@ -670,69 +658,134 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 			this.duration = ended - started;
 		}
 
+		public int hashCode() {
+			return new Double(((success + failed) / duration) * Math.pow(2, poolSize)).hashCode();
+		}
+
+
 		public String toString() {
 			return "[failed: " + failed + ", canceled: " + cancelled + ", success: " + success + "] Took " + TimeUnit.MILLISECONDS.convert(duration, TimeUnit.NANOSECONDS) + "ms in a pool of " + poolSize + " threads.";
 		}
 	}
 
-	private double average(String fielda) {
-		double total = 0;
-		try {
-			Field afield = History.class.getDeclaredField(fielda);
-
-			for (int i = 0; i < histogram.size(); i++) {
-				total += afield.getDouble(histogram.get(i));
-			}
-			if (total > 0) {
-				return total / histogram.size();
-			}
-		} catch (Exception ex) {
-
+	/**
+	 * Calculates the Pearson Correlation of poolSize vs. duration for the current
+	 * histogram.
+	 *
+	 * When this value dips to <=0 a linear regression will produce a line function with a
+	 * negative slope. The closer to -1, the stronger the match to the line.
+	 * For our purposes, a weak approximation over a histogram with 10 samples should be
+	 * sufficient for identifying when to start doing into polynomial math.
+	 *
+	 * @return
+	 */
+	private double threadEfficiency() {
+		double[][] dataPoints = new double[histogram.size()][7];
+		double aTotal = 0;
+		double bTotal = 0;
+		for (int i = 0; i < dataPoints.length; i++) {
+			dataPoints[i][0] = histogram.get(i).poolSize;
+			dataPoints[i][1] = histogram.get(i).duration;
+			aTotal += dataPoints[i][0];
+			bTotal += dataPoints[i][1];
 		}
-		return 0;
+
+		double aMean = aTotal / dataPoints.length;
+		double bMean = bTotal / dataPoints.length;
+
+		double abTotal = 0;
+		double asTotal = 0;
+		double bsTotal = 0;
+
+		for (int i = 0; i < dataPoints.length; i++) {
+			dataPoints[i][2] = dataPoints[i][0] - aMean;
+			dataPoints[i][3] = dataPoints[i][1] - bMean;
+			dataPoints[i][4] = dataPoints[i][2] * dataPoints[i][3];
+			dataPoints[i][5] = dataPoints[i][2] * dataPoints[i][2];
+			dataPoints[i][6] = dataPoints[i][3] * dataPoints[i][3];
+
+			abTotal += dataPoints[i][4];
+			asTotal += dataPoints[i][5];
+			bsTotal += dataPoints[i][6];
+		}
+
+		if (abTotal != 0 && asTotal != 0 && bsTotal != 0) {
+			return (abTotal / Math.sqrt(asTotal * bsTotal));
+		}
+
+		return 0.0;
 	}
 
-	private double correlate(String fielda, String fieldb) {
-		try {
-			Field afield = History.class.getDeclaredField(fielda);
-			Field bfield = History.class.getDeclaredField(fieldb);
+	private void interpolate() {
+		// Key = # of threads
+		HashMap<Integer, List<History>> dataPoints = new HashMap<Integer, List<History>>(histogram.size());
 
-			double[][] dataPoints = new double[histogram.size()][7];
-			double aTotal = 0;
-			double bTotal = 0;
-			for (int i = 0; i < dataPoints.length; i++) {
-				dataPoints[i][0] = afield.getDouble(histogram.get(i));
-				dataPoints[i][1] = bfield.getDouble(histogram.get(i));
-				aTotal += dataPoints[i][0];
-				bTotal += dataPoints[i][1];
+		// Add Histogram entries that had the same amount of work as we currently have.
+		for (int i = 0; i < histogram.size(); i++) {
+			History candidate = histogram.get(i);
+			if (candidate.total == collectablePermutations.size()) {
+				List<History> pointList = dataPoints.get(candidate.poolSize);
+				if (pointList == null) {
+					pointList = new ArrayList<History>(histogram.size() / 2);
+				}
+				pointList.add(candidate);
+				dataPoints.put(candidate.poolSize, pointList);
 			}
-
-			double aMean = aTotal / dataPoints.length;
-			double bMean = bTotal / dataPoints.length;
-
-			double abTotal = 0;
-			double asTotal = 0;
-			double bsTotal = 0;
-
-			for (int i = 0; i < dataPoints.length; i++) {
-				dataPoints[i][2] = dataPoints[i][0] - aMean;
-				dataPoints[i][3] = dataPoints[i][1] - bMean;
-				dataPoints[i][4] = dataPoints[i][2] * dataPoints[i][3];
-				dataPoints[i][5] = dataPoints[i][2] * dataPoints[i][2];
-				dataPoints[i][6] = dataPoints[i][3] * dataPoints[i][3];
-
-				abTotal += dataPoints[i][4];
-				asTotal += dataPoints[i][5];
-				bsTotal += dataPoints[i][6];
-			}
-
-			if (abTotal != 0 && asTotal != 0 && bsTotal != 0) {
-				return (abTotal / Math.sqrt(asTotal * bsTotal));
-			}
-		} catch (Exception ex) {
-			Collectd.logError(ex.toString());
 		}
-		return 0.00;
+
+		// Make sure we have enough data points.
+		if (dataPoints.size() < 3) {
+			forcePoolGrowth += Runtime.getRuntime().availableProcessors();
+			Collectd.logInfo("FastJMX Plugin: Fewer than 3 datapoints for current workload size. Forcing threadpool growth by: " + forcePoolGrowth);
+		} else {
+			Collectd.logInfo("FastJMX Plugin: Found datapoints " + dataPoints.size() + " for current workload size.");
+			forcePoolGrowth = 0;
+			// Take fastest run by average duration per item.
+			final Comparator<History> fastestAverageRun = new Comparator<History>() {
+				public int compare(History o1, History o2) {
+					return Long.compare(((o1.success + o1.failed) / o1.duration), ((o2.success + o2.failed) / o2.duration));
+				}
+			};
+
+			for (Map.Entry<Integer, List<History>> entry : dataPoints.entrySet()) {
+				Collections.sort(entry.getValue(), fastestAverageRun);
+			}
+
+			List<Integer> poolSizes = new ArrayList<Integer>(dataPoints.keySet());
+			Collections.sort(poolSizes);
+
+			History[] points = new History[]{dataPoints.get(poolSizes.get(0)).get(0),
+			                                 dataPoints.get(poolSizes.get(poolSizes.size() / 2)).get(0),
+			                                 dataPoints.get(poolSizes.get(poolSizes.size() - 1)).get(0)};
+
+			// Get the y values as the average duration per task
+			double[] xvals = new double[points.length];
+			double[] yvals = new double[points.length];
+
+			StringBuilder log = new StringBuilder();
+			for (int i = 0; i < points.length; i++) {
+				xvals[i] = points[i].poolSize;
+				yvals[i] = TimeUnit.MILLISECONDS.convert(points[i].duration, TimeUnit.NANOSECONDS);
+				log.append("[").append(xvals[i]).append(", ").append(yvals[i]).append("] ");
+			}
+			Collectd.logInfo("FastJMX Plugin: condiering points: " + log);
+
+			NevilleInterpolator interpolator = new NevilleInterpolator();
+			PolynomialFunctionLagrangeForm function = interpolator.interpolate(xvals, yvals);
+
+			BrentOptimizer optimizer = new BrentOptimizer(1e-10, 1e-14);
+			try {
+				long optimalThreads =
+						Math.round(optimizer.optimize(GoalType.MINIMIZE, new SearchInterval(0, 320, 1),
+								                             new UnivariateObjectiveFunction(function), MaxEval.unlimited(), MaxIter.unlimited()).getPoint());
+
+				Collectd.logInfo("FastJMX Plugin: Calculated optimal Threads: " + optimalThreads);
+			} catch (Exception ex) {
+				Collectd.logInfo("FastJMX Plugin: " + ex);
+				Collectd.logInfo("Optimizer: " + optimizer.getMin() + " to " + optimizer.getMax());
+				forcePoolGrowth += mbeanExecutor.getCorePoolSize();
+			}
+		}
 	}
 
 	private static class FastJMXThreadFactory implements ThreadFactory {

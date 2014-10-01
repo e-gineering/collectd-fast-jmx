@@ -141,8 +141,19 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 		this.valueList.setInterval(TimeUnit.MILLISECONDS.convert(value, timeUnit));
 	}
 
+	/**
+	 * Implements Comparable, allowing for a natural sort ordering of previous <em>successful</em> execution duration.
+	 *
+	 * Executions previously cancelled or failed will be treated as 'not run', and have a duration of '0', making them
+	 * 'less than' by comparison. If both objects being compared have a run duration of 0, they are sorted according to
+	 * the computed hashCode() values.
+	 *
+	 * @param o
+	 * @return
+	 */
 	public int compareTo(final AttributePermutation o) {
-		int i = -1 * Long.compare(lastRunDuration, o.lastRunDuration);
+
+		int i = -1 * Long.compare(getLastRunDuration(), o.getLastRunDuration());
 		if (i != 0) {
 			return i;
 		}
