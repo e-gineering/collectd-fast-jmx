@@ -1,5 +1,6 @@
 package org.collectd;
 
+import org.apache.commons.math3.analysis.differentiation.DerivativeStructure;
 import org.apache.commons.math3.analysis.interpolation.NevilleInterpolator;
 import org.apache.commons.math3.analysis.polynomials.PolynomialFunctionLagrangeForm;
 import org.apache.commons.math3.optim.MaxEval;
@@ -8,6 +9,8 @@ import org.apache.commons.math3.optim.nonlinear.scalar.GoalType;
 import org.apache.commons.math3.optim.univariate.BrentOptimizer;
 import org.apache.commons.math3.optim.univariate.SearchInterval;
 import org.apache.commons.math3.optim.univariate.UnivariateObjectiveFunction;
+import org.apache.commons.math3.optim.univariate.UnivariatePointValuePair;
+import org.apache.commons.math3.stat.regression.SimpleRegression;
 import org.collectd.api.Collectd;
 import org.collectd.api.CollectdConfigInterface;
 import org.collectd.api.CollectdInitInterface;
@@ -299,9 +302,6 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 			connectionEntry.connect();
 		}
 
-		// Seed an initial empty history
-		histogram.push(new History(0, 0, 0, 0, System.nanoTime(), System.nanoTime()));
-
 		return 0;
 	}
 
@@ -326,14 +326,18 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 				reads = 1;
 			}
 
-			interval = TimeUnit.MILLISECONDS.convert((start - histogram.peek().started), TimeUnit.NANOSECONDS);
-			intervalUnit = TimeUnit.MILLISECONDS;
-			// Target latency default to half the interval, in nanoseconds.
-			targetLatency = TimeUnit.NANOSECONDS.convert(interval / 2, TimeUnit.MILLISECONDS);
+			History previousCycle = histogram.peek();
 
-			// Adjust the keepalive time.
-			if (interval * 2 > 0) {
-				mbeanExecutor.setKeepAliveTime(interval * 2, intervalUnit);
+			if (previousCycle != null) {
+				interval = TimeUnit.MILLISECONDS.convert((start - previousCycle.started), TimeUnit.NANOSECONDS);
+				intervalUnit = TimeUnit.MILLISECONDS;
+				// Target latency default to half the interval, in nanoseconds.
+				targetLatency = TimeUnit.NANOSECONDS.convert(interval / 2, TimeUnit.MILLISECONDS);
+
+				// Adjust the keepalive time.
+				if (interval * 2 > 0) {
+					mbeanExecutor.setKeepAliveTime(interval * 2, intervalUnit);
+				}
 			}
 
 
@@ -345,7 +349,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 					if (optimalSearch != 0) {
 						int optimalSize = calculateOptimialSize();
 
-						Collectd.logInfo("FastJMX Plugin: Optimal Pool size: " + (optimalSearch == 0 ? "FOUND" : "NOT FOUND") + " Setting Pool Size: " + optimalSize);
+						Collectd.logDebug("FastJMX Plugin: Optimal Pool size: " + (optimalSearch == 0 ? "FOUND" : "NOT FOUND") + " Setting Pool Size: " + optimalSize);
 						mbeanExecutor.setCorePoolSize(optimalSize);
 						mbeanExecutor.setMaximumPoolSize(optimalSize);
 					}
@@ -381,13 +385,17 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 				}
 			}
 
-			// If the number of cancellations changed, recalculate.
-			if (histogram.peek().cancelled != cancelled) {
+			History completedCycle = new History(failed, cancelled, success, mbeanExecutor.getCorePoolSize(), start, System.nanoTime());
+
+			// If the number of cancellations changed or the target latency is exceeded, recalculate.
+			if (completedCycle.cancelled > 0 || completedCycle.duration > targetLatency) {
 				optimalSearch = 1;
 			}
 
-			histogram.push(new History(failed, cancelled, success, mbeanExecutor.getCorePoolSize(), start, System.nanoTime()));
-			Collectd.logInfo("FastJMX plugin: histogram.push: " + histogram.peek());
+			if (completedCycle.total > 0) {
+				histogram.push(completedCycle);
+			}
+			Collectd.logDebug("FastJMX plugin: History: " + completedCycle);
 		} catch (Throwable t) {
 			Collectd.logError("FastJMX plugin: Unexpected Throwable: " + t);
 		}
@@ -617,7 +625,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 			return 1;
 		}
 
-		Collectd.logInfo("FastJMX Plugin: estimateMinimumPoolSize: targetLatency: " + targetLatency);
+		Collectd.logDebug("FastJMX Plugin: estimateMinimumPoolSize: targetLatency: " + targetLatency);
 
 		int slowestReasonableIdx = -1;  // Items which cannot complete within the targetTime.
 		AttributePermutation slowestReasonable = null;
@@ -656,13 +664,13 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 		// Assuming we set threadsRequired = queueableIdx, how much effort will remain to be calculated?
 		int requiredThreads = queuableIdx;
 
-		Collectd.logInfo("FastJMX Plugin: estimateMinimumPoolSize: queuableIdx: " + queuableIdx + " unknownEffort: " + unknownEffort + " knownEfforts:" + knownEfforts + " estimatedEffort:" + estimatedEffort);
+		Collectd.logDebug("FastJMX Plugin: estimateMinimumPoolSize: queuableIdx: " + queuableIdx + " unknownEffort: " + unknownEffort + " knownEfforts:" + knownEfforts + " estimatedEffort:" + estimatedEffort);
 
 		// Get the mean time for the known runs from the last cycle, and use that to calculate the
 		// times expected for the unknown efforts.
 		estimatedEffort += (estimatedEffort / Math.max(knownEfforts, 1)) * unknownEffort;
 
-		Collectd.logInfo("FastJMX Plugin: estimateMinimumPoolSize: estimateEffort accounting for unknowns @ average: " + estimatedEffort);
+		Collectd.logDebug("FastJMX Plugin: estimateMinimumPoolSize: estimateEffort accounting for unknowns @ average: " + estimatedEffort);
 
 		// Now account for the threads.
 		estimatedEffort = estimatedEffort - (requiredThreads * targetLatency);
@@ -670,11 +678,11 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 		// How many threads should we have to finish by targetTime?
 		requiredThreads += (int) Math.ceil((double) estimatedEffort / targetLatency);
 
-		Collectd.logInfo("FastJMX plugin: estimateMinimumPoolSize: Calculated minimum pool size: " + requiredThreads);
+		Collectd.logDebug("FastJMX plugin: estimateMinimumPoolSize: Calculated minimum pool size: " + requiredThreads);
 
 		// Clamp to the global max threads
 		requiredThreads = Math.min(requiredThreads, MAXIMUM_THREADS);
-		Collectd.logInfo("FastJMX plugin: estimateMinimumPoolSize: After clamping to MAXIMUM_THREADS: " + requiredThreads);
+		Collectd.logDebug("FastJMX plugin: estimateMinimumPoolSize: After clamping to MAXIMUM_THREADS: " + requiredThreads);
 
 		return requiredThreads;
 	}
@@ -704,7 +712,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 		if (!dataPoints.isEmpty()) {
 			// Make sure we have enough data points.
 			if (dataPoints.size() < 3) {
-				Collectd.logInfo("FastJMX Plugin: Histogram does not contain enough different sized pools with comparable workloads to determine optimal thread count.");
+				Collectd.logDebug("FastJMX Plugin: Histogram does not contain enough different sized pools with comparable workloads to determine optimal thread count.");
 
 				int min = Integer.MAX_VALUE;
 				int max = 0;
@@ -715,23 +723,18 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 				}
 
 				if (optimalSearch == -1 && min > Runtime.getRuntime().availableProcessors() + 1) {
-					Collectd.logInfo("FastJMX Plugin: Forcing pool shrink to provide histogram data.");
+					Collectd.logDebug("FastJMX Plugin: Forcing pool shrink to provide histogram data.");
 					optimalThreads = min - Runtime.getRuntime().availableProcessors();
 				} else {
-					Collectd.logInfo("FastJMX Plugin: Forcing pool growth to provide histogram data.");
+					Collectd.logDebug("FastJMX Plugin: Forcing pool growth to provide histogram data.");
 					optimalThreads = max + Runtime.getRuntime().availableProcessors();
 				}
 			} else {
-				Collectd.logInfo("FastJMX Plugin: Found datapoints " + dataPoints.size() + " for current workload size.");
+				Collectd.logDebug("FastJMX Plugin: Found datapoints " + dataPoints.size() + " for current workload size.");
 				// Take fastest run by average duration per item.
-				final Comparator<History> fastestAverageRun = new Comparator<History>() {
-					public int compare(History o1, History o2) {
-						return Long.compare(((o1.success + o1.failed) / o1.duration), ((o2.success + o2.failed) / o2.duration));
-					}
-				};
 
 				for (Map.Entry<Integer, List<History>> entry : dataPoints.entrySet()) {
-					Collections.sort(entry.getValue(), fastestAverageRun);
+					Collections.sort(entry.getValue(), FASTEST_AVERAGE_DURATION_COMPARATOR);
 				}
 
 				List<Integer> poolSizes = new ArrayList<Integer>(dataPoints.keySet());
@@ -751,20 +754,24 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 					yvals[i] = TimeUnit.MILLISECONDS.convert(points[i].duration, TimeUnit.NANOSECONDS);
 					log.append("[").append(xvals[i]).append(", ").append(yvals[i]).append("] ");
 				}
-				Collectd.logInfo("FastJMX Plugin: condiering points: " + log);
+				Collectd.logDebug("FastJMX Plugin: condiering points: " + log);
 
 				NevilleInterpolator interpolator = new NevilleInterpolator();
 				PolynomialFunctionLagrangeForm function = interpolator.interpolate(xvals, yvals);
+				Collectd.logDebug("FastJMX Plugin: Function degree: " + function.degree());
 
 				BrentOptimizer optimizer = new BrentOptimizer(1e-10, 1e-14);
 				try {
-					int minimumThreads = estimateMinimumPoolSize() / 2;
+					int minimumThreads = estimateMinimumPoolSize();
 
-					double optimumFromPolyFunc = optimizer.optimize(GoalType.MINIMIZE,
-							                                               new SearchInterval(minimumThreads, MAXIMUM_THREADS, minimumThreads),
+					UnivariatePointValuePair optimalSize = optimizer.optimize(GoalType.MINIMIZE,
+							                                               new SearchInterval(minimumThreads / 2, Math.min(collectablePermutations.size(), MAXIMUM_THREADS), minimumThreads / 2),
 							                                               new UnivariateObjectiveFunction(function),
-							                                               MaxEval.unlimited(), MaxIter.unlimited()).getPoint();
-					optimalThreads = (int) Math.round(optimumFromPolyFunc);
+							                                               MaxEval.unlimited(), MaxIter.unlimited());
+
+					Collectd.logDebug("FastJMX Plugin: Interpolated Polynomial predicts " + optimalSize.getPoint() + " as the most efficient # of threads.");
+					optimalThreads = Math.max(minimumThreads, (int)Math.round(optimalSize.getPoint()));
+
 					optimalSearch = 0;
 				} catch (Exception ex) {
 					Collectd.logWarning("FastJMX Plugin: Error calculating optimal thread count: " + ex);
@@ -773,9 +780,15 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 		}
 
 		optimalThreads = Math.min(optimalThreads, MAXIMUM_THREADS);
-		Collectd.logInfo("FastJMX Plugin: Optimal Threads: " + optimalThreads);
+		Collectd.logDebug("FastJMX Plugin: Optimal Threads: " + optimalThreads);
 		return optimalThreads;
 	}
+
+	private static final Comparator<History> FASTEST_AVERAGE_DURATION_COMPARATOR = new Comparator<History>() {
+		public int compare(History o1, History o2) {
+			return Long.compare(((o1.success + o1.failed) / o1.duration), ((o2.success + o2.failed) / o2.duration));
+		}
+	};
 
 	private static class FastJMXThreadFactory implements ThreadFactory {
 		private int threadCount = 0;
