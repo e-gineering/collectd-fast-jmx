@@ -59,7 +59,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	private long interval = 0l;
 	private long targetLatency = 0l;
 
-	private boolean optimalFound = false;
+	private int optimalSearch = 1;
 
 	private TimeUnit intervalUnit = TimeUnit.MILLISECONDS;
 	private Ring<History> histogram = new Ring<History>(15);
@@ -342,10 +342,10 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 				if (!collectablePermutations.isEmpty()) {
 					Collections.sort(collectablePermutations);
 
-					if (!optimalFound) {
+					if (optimalSearch != 0) {
 						int optimalSize = calculateOptimialSize();
 
-						Collectd.logInfo("FastJMX Plugin: Optimal Pool size: " + (optimalFound ? "FOUND" : "NOT FOUND") + " Setting Pool Size: " + optimalSize);
+						Collectd.logInfo("FastJMX Plugin: Optimal Pool size: " + (optimalSearch == 0 ? "FOUND" : "NOT FOUND") + " Setting Pool Size: " + optimalSize);
 						mbeanExecutor.setCorePoolSize(optimalSize);
 						mbeanExecutor.setMaximumPoolSize(optimalSize);
 					}
@@ -383,7 +383,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 
 			// If the number of cancellations changed, recalculate.
 			if (histogram.peek().cancelled != cancelled) {
-				optimalFound = false;
+				optimalSearch = 1;
 			}
 
 			histogram.push(new History(failed, cancelled, success, mbeanExecutor.getCorePoolSize(), start, System.nanoTime()));
@@ -434,7 +434,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 							connection.getServerConnection().queryNames(attrib.findName, null);
 					Collectd.logDebug("FastJMX plugin: Found " + instances.size() + " instances of " + attrib.findName + " @ " + connection.rawUrl);
 					collectablePermutations.addAll(AttributePermutation.create(instances.toArray(new ObjectName[instances.size()]), connection, attrib, interval, intervalUnit));
-					optimalFound = false;
+					optimalSearch = 1;
 				} catch (IOException ioe) {
 					Collectd.logError("FastJMX plugin: Failed to find " + attrib.findName + " @ " + connection.rawUrl + " Exception message: " + ioe.getMessage());
 				}
@@ -458,7 +458,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 				}
 			}
 			collectablePermutations.removeAll(toRemove);
-			optimalFound = false;
+			optimalSearch = -1;
 		}
 	}
 
@@ -474,7 +474,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 			// If the host is supposed to collect this attribute, and the objectName matches the attribute, add the permutation.
 			if (connection.beanAliases.contains(attribute.beanAlias) && attribute.findName.apply(objectName)) {
 				collectablePermutations.addAll(AttributePermutation.create(new ObjectName[]{objectName}, connection, attribute, interval, intervalUnit));
-				optimalFound = false;
+				optimalSearch = 1;
 			}
 		}
 	}
@@ -494,7 +494,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 				}
 			}
 			collectablePermutations.removeAll(toRemove);
-			optimalFound = false;
+			optimalSearch = -1;
 		}
 	}
 
@@ -681,7 +681,6 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 
 
 	private int calculateOptimialSize() {
-		optimalFound = false;
 		// Return the current number of threads if we have any issues calculating an optimal size.
 		int optimalThreads = mbeanExecutor.getCorePoolSize();
 
@@ -715,7 +714,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 					max = Math.max(point.poolSize, max);
 				}
 
-				if (min > Runtime.getRuntime().availableProcessors() + 1) {
+				if (optimalSearch == -1 && min > Runtime.getRuntime().availableProcessors() + 1) {
 					Collectd.logInfo("FastJMX Plugin: Forcing pool shrink to provide histogram data.");
 					optimalThreads = min - Runtime.getRuntime().availableProcessors();
 				} else {
@@ -766,7 +765,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 							                                               new UnivariateObjectiveFunction(function),
 							                                               MaxEval.unlimited(), MaxIter.unlimited()).getPoint();
 					optimalThreads = (int) Math.round(optimumFromPolyFunc);
-					optimalFound = true;
+					optimalSearch = 0;
 				} catch (Exception ex) {
 					Collectd.logWarning("FastJMX Plugin: Error calculating optimal thread count: " + ex);
 				}
