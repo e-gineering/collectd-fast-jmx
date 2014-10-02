@@ -302,6 +302,9 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 			connectionEntry.connect();
 		}
 
+		// Seed with an initial history
+		histogram.push(new History(0, 0, 0, 0, System.nanoTime(), System.nanoTime() + TimeUnit.NANOSECONDS.convert(1, TimeUnit.SECONDS)));
+
 		return 0;
 	}
 
@@ -731,8 +734,8 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 				}
 			} else {
 				Collectd.logDebug("FastJMX Plugin: Found datapoints " + dataPoints.size() + " for current workload size.");
-				// Take fastest run by average duration per item.
 
+				// Take fastest run by average duration per item.
 				for (Map.Entry<Integer, List<History>> entry : dataPoints.entrySet()) {
 					Collections.sort(entry.getValue(), FASTEST_AVERAGE_DURATION_COMPARATOR);
 				}
@@ -740,21 +743,21 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 				List<Integer> poolSizes = new ArrayList<Integer>(dataPoints.keySet());
 				Collections.sort(poolSizes);
 
-				History[] points = new History[]{dataPoints.get(poolSizes.get(0)).get(0),
-				                                 dataPoints.get(poolSizes.get(poolSizes.size() / 2)).get(0),
-				                                 dataPoints.get(poolSizes.get(poolSizes.size() - 1)).get(0)};
-
 				// Get the y values as the average duration per task
-				double[] xvals = new double[points.length];
-				double[] yvals = new double[points.length];
+				double[] xvals = new double[poolSizes.size()];
+				double[] yvals = new double[poolSizes.size()];
 
-				StringBuilder log = new StringBuilder();
-				for (int i = 0; i < points.length; i++) {
-					xvals[i] = points[i].poolSize;
-					yvals[i] = TimeUnit.MILLISECONDS.convert(points[i].duration, TimeUnit.NANOSECONDS);
-					log.append("[").append(xvals[i]).append(", ").append(yvals[i]).append("] ");
+				StringBuilder log = new StringBuilder("{");
+				for (int i = 0; i < poolSizes.size(); i++) {
+					if (i > 0) {
+						log.append(",");
+					}
+					xvals[i] = poolSizes.get(i);
+					yvals[i] = TimeUnit.MILLISECONDS.convert(dataPoints.get(poolSizes.get(i)).get(0).duration, TimeUnit.NANOSECONDS);
+					log.append("{").append(xvals[i]).append(", ").append(yvals[i]).append("}");
 				}
-				Collectd.logDebug("FastJMX Plugin: condiering points: " + log);
+				log.append("}");
+				Collectd.logInfo("FastJMX Plugin: considering points: " + log);
 
 				NevilleInterpolator interpolator = new NevilleInterpolator();
 				PolynomialFunctionLagrangeForm function = interpolator.interpolate(xvals, yvals);
