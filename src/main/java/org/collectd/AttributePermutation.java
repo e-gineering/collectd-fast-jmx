@@ -218,14 +218,14 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 							value = compositeValue.get(node);
 						} else if (value instanceof OpenType) {
 							throw new UnsupportedOperationException("Handling of OpenType " + ((OpenType) value).getTypeName() + " is not yet implemented.");
-						} else {
+						} else if (value != null) {
 							// Try to traverse via Reflection.
 							value = value.getClass().getDeclaredField(node).get(value);
+						} else if (i + 1 == attributePath.getValue().size()) {
+							// TODO: Configure this so users can try to track down what isn't working.
+							// It's really annoying though, for things like LastGcInfo.duration, which are transient for things like CMS collectors.
+							Collectd.logDebug("FastJMX plugin: NULL read from " + path + " in " + objectName + " @ " + connection.rawUrl);
 						}
-					}
-
-					if (value == null) {
-						throw new IllegalStateException("Could not read " + path + " from " + objectName + " @ " + connection.rawUrl);
 					}
 				}
 
@@ -312,7 +312,13 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 	 * <p/>
 	 * Returns null if a conversion is not possible or not implemented.
 	 */
-	private Number genericObjectToNumber(final Object obj, final int ds_type) throws IllegalArgumentException {
+	private Number genericObjectToNumber(Object obj, final int ds_type) throws IllegalArgumentException {
+		// In case we read a 'NULL', convert that to 0 for now. Maybe the Java plugin can be updated to handle this
+		// more gracefully?
+		if (obj == null) {
+			obj = "0";
+		}
+
 		if (obj instanceof String) {
 			String str = (String) obj;
 
