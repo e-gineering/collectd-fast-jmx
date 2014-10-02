@@ -303,7 +303,8 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 		}
 
 		// Seed with an initial history
-		histogram.push(new History(0, 0, 0, 0, System.nanoTime(), System.nanoTime() + TimeUnit.NANOSECONDS.convert(1, TimeUnit.SECONDS)));
+		long now = System.nanoTime();
+		histogram.push(new History(0, 0, 0, 0, now, now));
 
 		return 0;
 	}
