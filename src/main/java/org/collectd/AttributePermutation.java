@@ -255,7 +255,7 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 					Collectd.logDebug("FastJMX plugin: dispatch " + vl);
 					Collectd.dispatchValues(vl);
 				}
-			} else {
+			} else if (!values.contains(null)) {
 				ValueList vl = new ValueList(callVal);
 				vl.setValues(genericListToNumber(values));
 				Collectd.logDebug("FastJMX plugin: dispatch " + vl);
@@ -312,13 +312,7 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 	 * <p/>
 	 * Returns null if a conversion is not possible or not implemented.
 	 */
-	private Number genericObjectToNumber(Object obj, final int ds_type) throws IllegalArgumentException {
-		// In case we read a 'NULL', convert that to 0 for now. Maybe the Java plugin can be updated to handle this
-		// more gracefully?
-		if (obj == null) {
-			obj = "0";
-		}
-
+	private Number genericObjectToNumber(final Object obj, final int ds_type) throws IllegalArgumentException {
 		if (obj instanceof String) {
 			String str = (String) obj;
 
