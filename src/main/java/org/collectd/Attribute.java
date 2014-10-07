@@ -5,6 +5,7 @@ import org.collectd.api.DataSet;
 import javax.management.ObjectName;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 
@@ -12,18 +13,18 @@ import java.util.List;
  * Defines the parameters needed to build a set of AttributePermutations combined with a ConnectionDefinition.
  */
 public class Attribute {
-	String beanAlias;
-	String pluginName;
+	private String beanAlias;
+	private String pluginName;
 
-	ObjectName findName;
-	String beanInstancePrefix;
-	List<String> beanInstanceFrom = new ArrayList<String>();
+	private ObjectName findName;
+	private String beanInstancePrefix;
+	private List<String> beanInstanceFrom = new ArrayList<String>();
 
-	LinkedHashMap<String, List<String>> attributes = new LinkedHashMap<String, List<String>>();
-	DataSet dataset;
-	String valueInstancePrefix;
-	List<String> valueInstanceFrom = new ArrayList<String>();
-	boolean composite;
+	private LinkedHashMap<String, List<String>> attributes = new LinkedHashMap<String, List<String>>();
+	private DataSet dataset;
+	private String valueInstancePrefix;
+	private List<String> valueInstanceFrom = new ArrayList<String>();
+	private boolean composite;
 
 	public Attribute(final List<String> attributes, final String pluginName, final DataSet dataset,
 	                 final String valueInstancePrefix, final List<String> valueInstanceFrom, final boolean composite,
@@ -43,5 +44,44 @@ public class Attribute {
 		this.composite = composite;
 	}
 
+	public String getBeanAlias() {
+		return beanAlias;
+	}
+
+	public ObjectName getObjectName() {
+		return findName;
+	}
+
+	public String getPluginName() {
+		return pluginName;
+	}
+
+	public List<String> getBeanInstanceFrom() {
+		return beanInstanceFrom;
+	}
+
+	public DataSet getDataSet() {
+		return dataset;
+	}
+
+	public String getBeanInstancePrefix() {
+		return beanInstancePrefix;
+	}
+
+	public List<String> getValueInstanceFrom() {
+		return valueInstanceFrom;
+	}
+
+	public String getValueInstancePrefix() {
+		return valueInstancePrefix;
+	}
+
+	public HashMap<String, List<String>> getAttributes() {
+		return attributes;
+	}
+
+	public boolean isComposite() {
+		return composite;
+	}
 
 }

@@ -44,16 +44,16 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 	public static List<AttributePermutation> create(final ObjectName[] objectNames, final Connection connection, final Attribute context) {
 		// This method takes into account the beanInstanceFrom and valueInstanceFrom properties to create many AttributePermutations.
 		if (objectNames.length == 0) {
-			Collectd.logWarning("FastJMX plugin: No MBeans matched " + context.findName + " @ " + connection.rawUrl);
+			Collectd.logWarning("FastJMX plugin: No MBeans matched " + context.getObjectName() + " @ " + connection.getRawUrl());
 			return new ArrayList<AttributePermutation>(0);
 		}
 
 		List<AttributePermutation> permutations = new ArrayList<AttributePermutation>();
 
 		PluginData pd = new PluginData();
-		pd.setHost(connection.hostname);
-		if (context.pluginName != null) {
-			pd.setPlugin(context.pluginName);
+		pd.setHost(connection.getHostname());
+		if (context.getPluginName() != null) {
+			pd.setPlugin(context.getPluginName());
 		} else {
 			pd.setPlugin("FastJMX");
 		}
@@ -63,7 +63,7 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 			List<String> beanInstanceList = new ArrayList<String>();
 			StringBuilder beanInstance = new StringBuilder();
 
-			for (String propertyName : context.beanInstanceFrom) {
+			for (String propertyName : context.getBeanInstanceFrom()) {
 				String propertyValue = objName.getKeyProperty(propertyName);
 
 				if (propertyValue == null) {
@@ -73,15 +73,15 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 				}
 			}
 
-			if (connection.connectionInstancePrefix != null) {
-				beanInstance.append(connection.connectionInstancePrefix);
+			if (connection.getConnectionInstancePrefix()!= null) {
+				beanInstance.append(connection.getConnectionInstancePrefix());
 			}
 
-			if (context.beanInstancePrefix != null) {
+			if (context.getBeanInstancePrefix() != null) {
 				if (beanInstance.length() > 0) {
 					beanInstance.append("-");
 				}
-				beanInstance.append(context.beanInstancePrefix);
+				beanInstance.append(context.getBeanInstancePrefix());
 			}
 
 			for (int i = 0; i < beanInstanceList.size(); i++) {
@@ -93,10 +93,10 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 			permutationPD.setPluginInstance(beanInstance.toString());
 
 			ValueList vl = new ValueList(permutationPD);
-			vl.setType(context.dataset.getType());
+			vl.setType(context.getDataSet().getType());
 
 			List<String> attributeInstanceList = new ArrayList<String>();
-			for (String propertyName : context.valueInstanceFrom) {
+			for (String propertyName : context.getValueInstanceFrom()) {
 				String propertyValue = objName.getKeyProperty(propertyName);
 				if (propertyValue == null) {
 					Collectd.logError("FastJMX plugin: no such property [" + propertyName + "] in ObjectName [" + objName + "] for attribute instance creation.");
@@ -106,8 +106,8 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 			}
 
 			StringBuilder attributeInstance = new StringBuilder();
-			if (context.valueInstancePrefix != null) {
-				attributeInstance.append(context.valueInstancePrefix);
+			if (context.getValueInstancePrefix() != null) {
+				attributeInstance.append(context.getValueInstancePrefix());
 			}
 
 			for (int i = 0; i < attributeInstanceList.size(); i++) {
@@ -173,7 +173,7 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 
 	@Override
 	public int hashCode() {
-		return (connection.hostname + connection.rawUrl + objectName.toString() + pluginData.getSource() + valueList.getType()).hashCode();
+		return (connection.getHostname() + connection.getRawUrl() + objectName.toString() + pluginData.getSource() + valueList.getType()).hashCode();
 	}
 
 	/**
@@ -193,7 +193,7 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 			MBeanServerConnection mbs = connection.getServerConnection();
 
 			List<Object> values = new ArrayList<Object>(8);
-			for (Map.Entry<String, List<String>> attributePath : attribute.attributes.entrySet()) {
+			for (Map.Entry<String, List<String>> attributePath : attribute.getAttributes().entrySet()) {
 				Object value = null;
 				StringBuilder path = new StringBuilder();
 
@@ -223,7 +223,7 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 						} else if (i + 1 == attributePath.getValue().size()) {
 							// TODO: Configure this so users can try to track down what isn't working.
 							// It's really annoying though, for things like LastGcInfo.duration, which are transient for things like CMS collectors.
-							Collectd.logDebug("FastJMX plugin: NULL read from " + path + " in " + objectName + " @ " + connection.rawUrl);
+							Collectd.logDebug("FastJMX plugin: NULL read from " + path + " in " + objectName + " @ " + connection.getRawUrl());
 						}
 					}
 				}
@@ -232,7 +232,7 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 			}
 
 			// If we're expecting CompositeData objects to be brokenConnection up like a table, handle it.
-			if (attribute.composite) {
+			if (attribute.isComposite()) {
 				List<CompositeData> cdList = new ArrayList<CompositeData>();
 				Set<String> keys = null;
 
@@ -243,7 +243,7 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 						}
 						cdList.add((CompositeData) obj);
 					} else {
-						throw new IllegalArgumentException("At least one of the attributes from " + objectName + " @ " + connection.rawUrl + " was not a 'CompositeData' as requried when table|composite = 'true'");
+						throw new IllegalArgumentException("At least one of the attributes from " + objectName + " @ " + connection.getRawUrl() + " was not a 'CompositeData' as requried when table|composite = 'true'");
 					}
 				}
 
@@ -297,7 +297,7 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 
 	private List<Number> genericListToNumber(final List<Object> objects) throws IllegalArgumentException {
 		List<Number> ret = new ArrayList<Number>();
-		List<DataSource> dsrc = this.attribute.dataset.getDataSources();
+		List<DataSource> dsrc = this.attribute.getDataSet().getDataSources();
 
 		for (int i = 0; i < objects.size(); i++) {
 			ret.add(genericObjectToNumber(objects.get(i), dsrc.get(i).getType()));

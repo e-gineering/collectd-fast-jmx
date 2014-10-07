@@ -320,19 +320,19 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 * @param connection The Connection to create permutations and start collecting.
 	 */
 	private void createPermutations(final Connection connection) {
-		Collectd.logDebug("FastJMX plugin: Creating AttributePermutations for " + connection.rawUrl);
+		Collectd.logDebug("FastJMX plugin: Creating AttributePermutations for " + connection.getRawUrl());
 		// Create the org.collectd.AttributePermutation objects appropriate for this org.collectd.Connection.
 		for (Attribute attrib : attributes) {
 			// If the host is supposed to collect this attribute, look for matching objectNames on the host.
-			if (connection.beanAliases.contains(attrib.beanAlias)) {
-				Collectd.logDebug("FastJMX plugin: Looking for " + attrib.findName + " @ " + connection.rawUrl);
+			if (connection.getBeanAliases().contains(attrib.getBeanAlias())) {
+				Collectd.logDebug("FastJMX plugin: Looking for " + attrib.getObjectName() + " @ " + connection.getRawUrl());
 				try {
 					Set<ObjectName> instances =
-							connection.getServerConnection().queryNames(attrib.findName, null);
-					Collectd.logDebug("FastJMX plugin: Found " + instances.size() + " instances of " + attrib.findName + " @ " + connection.rawUrl);
+							connection.getServerConnection().queryNames(attrib.getObjectName(), null);
+					Collectd.logDebug("FastJMX plugin: Found " + instances.size() + " instances of " + attrib.getObjectName() + " @ " + connection.getRawUrl());
 					collectablePermutations.addAll(AttributePermutation.create(instances.toArray(new ObjectName[instances.size()]), connection, attrib));
 				} catch (IOException ioe) {
-					Collectd.logError("FastJMX plugin: Failed to find " + attrib.findName + " @ " + connection.rawUrl + " Exception message: " + ioe.getMessage());
+					Collectd.logError("FastJMX plugin: Failed to find " + attrib.getObjectName() + " @ " + connection.getRawUrl() + " Exception message: " + ioe.getMessage());
 				}
 			}
 		}
@@ -344,7 +344,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 * @param connection The Connection to no longer collect.
 	 */
 	private void removePermutations(final Connection connection) {
-		Collectd.logDebug("FastJMX plugin: Removing AttributePermutations for " + connection.rawUrl);
+		Collectd.logDebug("FastJMX plugin: Removing AttributePermutations for " + connection.getRawUrl());
 		// Remove the org.collectd.AttributePermutation objects appropriate for this org.collectd.Connection.
 		ArrayList<AttributePermutation> toRemove = new ArrayList<AttributePermutation>();
 		synchronized (collectablePermutations) {
@@ -367,7 +367,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	private void createPermutations(final Connection connection, final ObjectName objectName) {
 		for (Attribute attribute : attributes) {
 			// If the host is supposed to collect this attribute, and the objectName matches the attribute, add the permutation.
-			if (connection.beanAliases.contains(attribute.beanAlias) && attribute.findName.apply(objectName)) {
+			if (connection.getBeanAliases().contains(attribute.getBeanAlias()) && attribute.getObjectName().apply(objectName)) {
 				collectablePermutations.addAll(AttributePermutation.create(new ObjectName[]{objectName}, connection, attribute));
 			}
 		}

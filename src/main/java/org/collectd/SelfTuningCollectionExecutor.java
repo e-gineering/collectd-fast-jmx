@@ -47,6 +47,12 @@ public class SelfTuningCollectionExecutor {
 	private static ThreadGroup mbeanReaders = new ThreadGroup(fastJMXThreads, "MbeanReaders");
 	private static long loaded = System.nanoTime();
 
+	private static Comparator<Number> numberComparator = new Comparator<Number>() {
+		public int compare(Number o1, Number o2) {
+			return Double.compare(o1.doubleValue(), o2.doubleValue());
+		}
+	};
+
 	private ReadCycleResult[] ring;
 	private int index;
 
@@ -102,22 +108,19 @@ public class SelfTuningCollectionExecutor {
 		}
 
 		// Make sure we keep track of this.
-		cycle.poolSize = threadPool.getCorePoolSize();
+		cycle.setPoolSize(threadPool.getCorePoolSize());
 
 		// If everything goes from success to cancelled, clear the histogram and reset
-		if (cycle.success == 0 && cycle.cancelled > 0) {
+		if (cycle.triggerReset()) {
 			clear();
 		}
 
-		// Update our internal interval and targetLatency...
-		ReadCycleResult previousCycle = peek();
-
-		// If we're already set to recalculate, or we exceed our targetLatency...
-		recalculateOptimum = recalculateOptimum || (targetLatency != -1 && cycle.duration > targetLatency);
-
-		// If we haven't already set to recalculate, diff against the previous cycle (if there is one).
-		if (!recalculateOptimum && previousCycle != null) {
-			if (previousCycle.poolSize != cycle.poolSize || previousCycle.cancelled != cycle.cancelled) {
+		// If we aren't set to
+		if (!recalculateOptimum) {
+			// If the cycle violated the target latency...
+			if (targetLatency != -1 && cycle.getDuration() > targetLatency) {
+				recalculateOptimum = true;
+			} else if (cycle.triggerRecalculate(peek())) {
 				recalculateOptimum = true;
 			}
 		}
@@ -172,7 +175,7 @@ public class SelfTuningCollectionExecutor {
 		List<Future<AttributePermutation>> results;
 		try {
 			ReadCycleResult previousCycle = peek();
-			interval = TimeUnit.NANOSECONDS.convert((start - (previousCycle != null ? previousCycle.started : loaded)), TimeUnit.NANOSECONDS);
+			interval = TimeUnit.NANOSECONDS.convert((start - (previousCycle != null ? previousCycle.getStarted() : loaded)), TimeUnit.NANOSECONDS);
 			intervalUnit = TimeUnit.NANOSECONDS;
 			targetLatency = TimeUnit.NANOSECONDS.convert(interval / 2, intervalUnit);
 			if (interval * 2 > 0) {
@@ -198,7 +201,7 @@ public class SelfTuningCollectionExecutor {
 		int success = 0;
 		for (Future<AttributePermutation> result : results) {
 			try {
-				Collectd.logDebug("FastJMX plugin: Read " + result.get().getObjectName() + " @ " + result.get().getConnection().rawUrl + " : " + result.get().getLastRunDuration());
+				Collectd.logDebug("FastJMX plugin: Read " + result.get().getObjectName() + " @ " + result.get().getConnection().getRawUrl() + " : " + result.get().getLastRunDuration());
 				success++;
 			} catch (ExecutionException ex) {
 				failed++;
@@ -260,18 +263,18 @@ public class SelfTuningCollectionExecutor {
 			HashMap<Integer, List<ReadCycleResult>> valueMap = new HashMap<Integer, List<ReadCycleResult>>();
 
 			for (int i = 0; i < ring.length; i++) {
-				if (ring[i] != null && ring[i].poolSize > 0) {
-					List<ReadCycleResult> depPoints = valueMap.get(ring[i].poolSize);
+				if (ring[i] != null && ring[i].getPoolSize() > 0) {
+					List<ReadCycleResult> depPoints = valueMap.get(ring[i].getPoolSize());
 					if (depPoints == null) {
 						depPoints = new ArrayList<ReadCycleResult>(5);
 					}
 					depPoints.add(ring[i]);
-					valueMap.put(ring[i].poolSize, depPoints);
+					valueMap.put(ring[i].getPoolSize(), depPoints);
 				}
 			}
 
 			List<Integer> valueKeys = new ArrayList<Integer>(valueMap.keySet());
-			Collections.sort(valueKeys, new NumberComparator());
+			Collections.sort(valueKeys, numberComparator);
 
 			Collectd.logInfo("FastJMX Plugin: " + valueKeys.size() + " of " + minIndependent + " unique pool sizes for in histogram for optimal projection");
 			if (valueKeys.size() < minIndependent) {
@@ -319,7 +322,7 @@ public class SelfTuningCollectionExecutor {
 
 				// Reset the fibonacci sequence to a decent position.
 				int max;
-				do {
+				while (fibparts[0] + fibparts[1] > (threadCount / 2)) {
 					max = fibparts[0];
 					if (max - fibparts[1] > 0) {
 						fibparts[0] = fibparts[1];
@@ -327,7 +330,7 @@ public class SelfTuningCollectionExecutor {
 					} else {
 						break;
 					}
-				} while (max > threadCount / 2 && max > 2);
+				}
 				Collectd.logInfo("FastJMX Plugin: Reset fibonacci to : " + fibparts[0] + " , " + fibparts[1]);
 			}
 
@@ -342,15 +345,13 @@ public class SelfTuningCollectionExecutor {
 	private Double averageDuration(List<ReadCycleResult> values) {
 		double d = 0.0;
 		for (int i = 0; i < values.size(); i++) {
-			d += values.get(i).getDuration();
+			d += values.get(i).getDurationMs();
 		}
 		return d / values.size();
 	}
 
 	/**
-	 * Calculate jacobian weight for the list of read cycle results.
-	 *
-	 * (total - cancellations / total) * ((interval - duration) / interval)
+	 * Calculate average jacobian weight for the list of read cycle results.
 	 *
 	 * @param values
 	 * @return
@@ -358,9 +359,7 @@ public class SelfTuningCollectionExecutor {
 	private Double weight(List<ReadCycleResult> values) {
 		double d = 0.0;
 		for (int i = 0; i < values.size(); i++) {
-			ReadCycleResult cycle = values.get(i);
-			d += (((double)cycle.total - cycle.cancelled) / cycle.total) + (((double)cycle.interval - cycle.duration) / cycle.interval);
-
+			d += values.get(i).getWeight();
 		}
 		return Math.max(d, 0) / values.size();
 	}
@@ -390,7 +389,8 @@ public class SelfTuningCollectionExecutor {
 	}
 
 	/**
-	 *
+	 * Creates a commons-math MultivariateVectorFunction that can feed a LeastSquaresProblem in order to project
+	 * optimial thread pool size.
 	 */
 	private static class QuadraticProblem implements MultivariateVectorFunction {
 		private double[] x;
@@ -445,13 +445,6 @@ public class SelfTuningCollectionExecutor {
 			return new DiagonalMatrix(w);
 		}
 	}
-
-	private class NumberComparator implements Comparator<Number> {
-		public int compare(Number o1, Number o2) {
-			return Double.compare(o1.doubleValue(), o2.doubleValue());
-		}
-	}
-
 
 	private class FastJMXThreadFactory implements ThreadFactory {
 		private int threadCount = 0;
