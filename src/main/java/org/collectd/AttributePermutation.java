@@ -41,7 +41,7 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 		this.valueList = vl;
 	}
 
-	public static List<AttributePermutation> create(final ObjectName[] objectNames, final Connection connection, final Attribute context, final long interval, final TimeUnit intervalUnit) {
+	public static List<AttributePermutation> create(final ObjectName[] objectNames, final Connection connection, final Attribute context) {
 		// This method takes into account the beanInstanceFrom and valueInstanceFrom properties to create many AttributePermutations.
 		if (objectNames.length == 0) {
 			Collectd.logWarning("FastJMX plugin: No MBeans matched " + context.findName + " @ " + connection.rawUrl);
@@ -93,7 +93,6 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 			permutationPD.setPluginInstance(beanInstance.toString());
 
 			ValueList vl = new ValueList(permutationPD);
-			vl.setInterval(TimeUnit.MILLISECONDS.convert(interval, intervalUnit));
 			vl.setType(context.dataset.getType());
 
 			List<String> attributeInstanceList = new ArrayList<String>();
