@@ -350,7 +350,7 @@ public class SelfTuningCollectionExecutor {
 	/**
 	 * Calculate jacobian weight for the list of read cycle results.
 	 *
-	 * (total - cancellations / total) * ((targetLatency - duration) / interval)
+	 * (total - cancellations / total) * ((interval - duration) / interval)
 	 *
 	 * @param values
 	 * @return
