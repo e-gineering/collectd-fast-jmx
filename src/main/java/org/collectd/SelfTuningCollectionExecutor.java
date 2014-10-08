@@ -70,7 +70,8 @@ public class SelfTuningCollectionExecutor {
 	private long targetLatency = -1;
 
 	// Seed for a fibonacci sequence, which is used to manipulate pool sizing in search of data points for analysis.
-	private int[] fibparts = new int[]{1, 0};
+	int fiba = 1;
+	int fibb = 0;
 
 	public SelfTuningCollectionExecutor(final int maximumThreads) {
 		ring = new ReadCycleResult[15];
@@ -89,7 +90,7 @@ public class SelfTuningCollectionExecutor {
 	 */
 	private void clear() {
 		recalculateOptimum = true;
-		fibparts = new int[]{1, 0};
+		resetFibonacci();
 
 		for (int i = 0; i < ring.length; i++) {
 			ring[i] = null;
@@ -110,11 +111,6 @@ public class SelfTuningCollectionExecutor {
 		// Make sure we keep track of this.
 		cycle.setPoolSize(threadPool.getCorePoolSize());
 
-		// If everything goes from success to cancelled, clear the histogram and reset
-		if (cycle.triggerReset()) {
-			clear();
-		}
-
 		// If we aren't set to
 		if (!recalculateOptimum) {
 			// If the cycle violated the target latency...
@@ -128,7 +124,7 @@ public class SelfTuningCollectionExecutor {
 		// Modify the ring buffer.
 		ring[index] = cycle;
 		index = (index + 1) % ring.length;
-		Collectd.logInfo("FastJMX Plugin: " + cycle);
+		Collectd.logDebug("FastJMX Plugin: " + cycle);
 
 		if (recalculateOptimum) {
 			int threadCount = calculateOptimum();
@@ -234,18 +230,37 @@ public class SelfTuningCollectionExecutor {
 		return ring[pos - 1];
 	}
 
+	private void resetFibonacci(){
+		resetFibonacci(Runtime.getRuntime().availableProcessors());
+	}
+
+	private void resetFibonacci(int lowerBound) {
+		int max;
+		while (fiba + fibb > lowerBound) {
+			max = fiba;
+
+			fiba = fibb;
+			fibb = max - fiba;
+		}
+		Collectd.logInfo("FastJMX Plugin: Fibonacci reset to : " + fiba + ":" + fibb);
+	}
+
 	/**
 	 * Gets the next value in a fibonacci sequence....
 	 * @return
 	 */
 	private int getNextFibonacci() {
-		int current = fibparts[0];
-		int next = fibparts[0] + fibparts[1];
-		fibparts[1] = fibparts[0];
-		fibparts[0] = next;
-		if (next == 0) {
-			fibparts[0] = 1;
+		int current = fiba;
+		int next = fiba + fibb;
+		fibb = fiba;
+		fiba = next;
+
+		if (current > maxThreads) {
+			resetFibonacci();
+			current = getNextFibonacci();
 		}
+
+		Collectd.logInfo("FastJMX Plugin: fibonacci sequence generated: " + current);
 		return current;
 	}
 
@@ -276,14 +291,10 @@ public class SelfTuningCollectionExecutor {
 			List<Integer> valueKeys = new ArrayList<Integer>(valueMap.keySet());
 			Collections.sort(valueKeys, numberComparator);
 
-			Collectd.logInfo("FastJMX Plugin: " + valueKeys.size() + " of " + minIndependent + " unique pool sizes for in histogram for optimal projection");
+			Collectd.logDebug("FastJMX Plugin: " + valueKeys.size() + " of " + minIndependent + " unique pool sizes for optimal projection");
 			if (valueKeys.size() < minIndependent) {
 				threadCount = getNextFibonacci();
-				if (threadCount > maxThreads) {
-					clear(); // Reset the histogram and restart the fibonacci sequence.
-				}
 			} else {
-				Collectd.logInfo("FastJMX Plugin: Projecting optimal # of threads...");
 				// Compute the averages of the dependent variable and keep track of independent values and weights.
 				double[] independent = new double[valueKeys.size()];
 				double[] observation = new double[valueKeys.size()];
@@ -293,7 +304,7 @@ public class SelfTuningCollectionExecutor {
 					independent[i] = key.doubleValue();
 					observation[i] = averageDuration(valueMap.get(key));
 					weights[i] = weight(valueMap.get(key));
-					Collectd.logInfo("FastJMX Plugin: Point: " + independent[i] + "," + observation[i] + " weight: " + weights[i]);
+					Collectd.logDebug("FastJMX Plugin: Point: " + independent[i] + "," + observation[i] + " weight: " + weights[i]);
 				}
 
 				QuadraticProblem qp = new QuadraticProblem(independent, observation, weights);
@@ -317,21 +328,11 @@ public class SelfTuningCollectionExecutor {
 						                                                 new UnivariateObjectiveFunction(qFunc),
 						                                                 MaxEval.unlimited(), MaxIter.unlimited());
 
-				Collectd.logInfo("FastJMX Plugin: Found minimum value: " + optimalMin.getValue() + " @ " + optimalMin.getPoint());
+				Collectd.logDebug("FastJMX Plugin: Found minimum value: " + optimalMin.getValue() + " @ " + optimalMin.getPoint());
 				threadCount = Math.max((int) Math.round(optimalMin.getPoint()), 1);
 
 				// Reset the fibonacci sequence to a decent position.
-				int max;
-				while (fibparts[0] + fibparts[1] > (threadCount / 2)) {
-					max = fibparts[0];
-					if (max - fibparts[1] > 0) {
-						fibparts[0] = fibparts[1];
-						fibparts[1] = max - fibparts[1];
-					} else {
-						break;
-					}
-				}
-				Collectd.logInfo("FastJMX Plugin: Reset fibonacci to : " + fibparts[0] + " , " + fibparts[1]);
+				resetFibonacci(threadCount / 4);
 			}
 
 			// Clamp the new value to maxThreads....

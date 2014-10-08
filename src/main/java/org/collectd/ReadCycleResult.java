@@ -35,14 +35,6 @@ public class ReadCycleResult {
 		return poolSize;
 	}
 
-	public int getCancelled() {
-		return cancelled;
-	}
-
-	public boolean triggerReset() {
-		return success == 0 && cancelled > 0;
-	}
-
 	public int getTotal() {
 		return total;
 	}

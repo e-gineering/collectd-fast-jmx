@@ -208,6 +208,9 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 						} catch (AttributeNotFoundException anfe) {
 							value = mbs.invoke(objectName, node, null, null);
 						}
+						if (Thread.currentThread().isInterrupted()) {
+							return this;
+						}
 					} else {
 						path.append(".").append(node);
 
@@ -227,8 +230,11 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 						}
 					}
 				}
-
 				values.add(value);
+			}
+
+			if (Thread.currentThread().isInterrupted()) {
+				return this;
 			}
 
 			// If we're expecting CompositeData objects to be brokenConnection up like a table, handle it.

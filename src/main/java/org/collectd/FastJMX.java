@@ -29,11 +29,8 @@ import java.util.concurrent.TimeUnit;
 /**
  * FastJMX is a Collectd plugin that allows for lower latency read cycles on remote JMX hosts.
  * It does so by maintaining a threadpool which is used to read attribute values from remote hosts during a read
- * cycle.
- * <p/>
- * A future enhancement that I'm looking into is the addition of an agent library that when included in the remote hosts
- * configuration would allow notification-based async push of value changes which would be aggregated and stored into
- * collectd during a read cycle.
+ * cycle. The thread pool uses a histogram of the recent collections to project the most efficient pool size to collect
+ * the as many metrics as possible during the collection interval.
  */
 public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, CollectdReadInterface, CollectdShutdownInterface, NotificationListener {
 
