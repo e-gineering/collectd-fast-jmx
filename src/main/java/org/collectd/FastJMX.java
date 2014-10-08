@@ -28,8 +28,8 @@ import java.util.concurrent.TimeUnit;
 /**
  * FastJMX is a Collectd plugin that allows for lower latency read cycles on remote JMX hosts.
  * It does so by maintaining a threadpool which is used to read attribute values from remote hosts during a read
- * cycle. The thread pool uses a histogram of the recent collections to project the most efficient pool size to collect
- * the as many metrics as possible during the collection interval.
+ * cycle. The thread pool uses a histogram of the recent collections to project the most efficient pool size to
+ * minimize read latency.
  */
 public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, CollectdReadInterface, CollectdShutdownInterface, NotificationListener {
 
@@ -60,11 +60,8 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 * <p/>
 	 * Note the following changes from the GenericJMX Configuration:
 	 * <ul>
-	 * <li>Interval: when defined, values not collected within the interval will be discarded, the read attempts will
-	 * be interrupted, and no values will be submitted to collectd. If you find that you're missing many values. By
-	 * default, the interval is auto-detected by the FastJMX plugin based on the elapsed time between collectd invoking
-	 * 'read()' on the FastJMX plugin. This is a tuning option.</li>
-	 * <li>IntervalUnit: Changes the interval unit to the name of a Java TimeUnit. Defaults to SECONDS.</li>
+	 * <li>MaxThreads: Changes the maximum number of threads to allow. Default is 512.</li>
+	 * <li>CollectInternal: Reports internal metrics from FastJMX back to Collectd.</li>
 	 * <li>"MBean", "MXBean", and "Bean" are now interchangeable. This plugin also works with MXBeans.</li>
 	 * <li>The Hostname is auto-detected from the ServiceURL unless specified as the "string" portion of the org.collectd.Connection
 	 * definition. The "host" property is still supported for backwards-compatibility.</li>
@@ -72,13 +69,14 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 * backards-compatibility.</li>
 	 * <li>"table" and "composite" are aliases for each other.</li>
 	 * <li>"user" and "username" are aliases for each other.</li>
+	 * <li></li>
 	 * </ul>
 	 * <p/>
 	 * <pre>
 	 * {@Code
 	 * <Plugin "FastJMX">
-	 *   Interval 3
-	 *   IntervalUnit SECONDS
+	 *   MaxThreads 384
+	 *   CollectInternal true
 	 *
 	 *   <MBean/MXBean/Bean "alias">
 	 *     ObjectName "java.lang:type=MemoryPool,*"
@@ -259,13 +257,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 
 
 	/**
-	 * During init() this plugin takes the time to do the 'long-running' JMX tasks which the GenericJMX plugin executes
-	 * with each 'read()' cycle. This includes making JMX Connections to the remote hosts, building up the collectablePermutations
-	 * for each attribute to be read, registering mbean and connection listeners to handle connection failures
-	 * and registration changes on the remote servers, and finally initializing a threadpool to handle parallel,
-	 * synchronous reading of JMX attributes.
-	 *
-	 * @return
+	 * Attempts to open connections to all configured Connections.
 	 */
 	public int init() {
 		this.reads = 0;
@@ -280,13 +272,8 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 
 
 	/**
-	 * Queue a run of all the AttributePermutations we know of at the time read() is invoked, and wait up to the
-	 * interval period for all collectablePermutations to complete.
-	 * <p/>
-	 * Any collectablePermutations which do not complete should be logged along with an interval warning.
-	 * <p/>
-	 * If 'interval' is not defined as a plugin parameter, we skip the first read() cycle to calculate the apparent
-	 * interval Collectd is running with.
+	 * Attempts to read all identified permutations of beans for each connection before the next (interval - 500ms).
+	 * Any attributes not read by that time will be cancelled and no metrics will be gathered for those points.
 	 *
 	 * @return
 	 */
@@ -299,6 +286,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 			}
 
 			synchronized (collectablePermutations) {
+				// Make sure the most latent attributes are the first ones to be collected.
 				Collections.sort(collectablePermutations);
 				try {
 					executor.invokeAll(collectablePermutations);
@@ -453,6 +441,13 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 		return (v.getString());
 	}
 
+	/**
+	 * Gets the first value (if it exists) from the OConfigItem as an int.
+	 *
+	 * @param ci
+	 * @param def A default value to return if no Number is found.
+	 * @return The int, or the value of <code>def</code> if no int is found.
+	 */
 	private static int getConfigInt(final OConfigItem ci, final int def) {
 		List<OConfigValue> values;
 		OConfigValue v;
