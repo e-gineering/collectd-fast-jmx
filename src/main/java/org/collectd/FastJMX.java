@@ -109,8 +109,15 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 * </pre>
 	 */
 	public int config(final OConfigItem ci) {
+		int maxThreads = 512;
+		boolean collectInternal = false;
+
 		for (OConfigItem pluginChild : ci.getChildren()) {
-			if ("mbean".equalsIgnoreCase(pluginChild.getKey()) || "mxbean".equalsIgnoreCase(pluginChild.getKey()) || "bean".equalsIgnoreCase(pluginChild.getKey())) {
+			if ("maxthreads".equalsIgnoreCase(pluginChild.getKey())) {
+				maxThreads = getConfigInt(pluginChild, maxThreads);
+			} else if ("collectinternal".equalsIgnoreCase(pluginChild.getKey())) {
+				collectInternal = getConfigBoolean(pluginChild);
+			} else if ("mbean".equalsIgnoreCase(pluginChild.getKey()) || "mxbean".equalsIgnoreCase(pluginChild.getKey()) || "bean".equalsIgnoreCase(pluginChild.getKey())) {
 				String beanAlias = getConfigString(pluginChild).toLowerCase();
 				ObjectName matchObjectName = null;
 				String beanInstancePrefix = null;
@@ -245,6 +252,8 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 			}
 		}
 
+		this.executor = new SelfTuningCollectionExecutor(maxThreads, collectInternal);
+
 		return 0;
 	}
 
@@ -260,7 +269,6 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 */
 	public int init() {
 		this.reads = 0;
-		this.executor = new SelfTuningCollectionExecutor(512, true);
 
 		// Open connections.
 		for (Connection connectionEntry : connections) {
@@ -443,6 +451,22 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 		}
 
 		return (v.getString());
+	}
+
+	private static int getConfigInt(final OConfigItem ci, final int def) {
+		List<OConfigValue> values;
+		OConfigValue v;
+
+		values = ci.getValues();
+		if (values.size() != 1) {
+			return def;
+		}
+
+		v = values.get(0);
+		if (v.getType() != OConfigValue.OCONFIG_TYPE_NUMBER) {
+			return def;
+		}
+		return v.getNumber().intValue();
 	}
 
 

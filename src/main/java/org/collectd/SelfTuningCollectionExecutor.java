@@ -69,7 +69,9 @@ public class SelfTuningCollectionExecutor {
 
 	private ArrayList<ValueList> dispatchable = new ArrayList<ValueList>();
 
-	private ValueList fastJMXVals;
+	private ValueList fastJMXCycle;
+	private ValueList fastJMXLatency;
+	private ValueList fastJMXGauge;
 
 
 	// Seed for a fibonacci sequence, which is used to manipulate pool sizing in search of data points for analysis.
@@ -85,21 +87,33 @@ public class SelfTuningCollectionExecutor {
 		threadPool.allowCoreThreadTimeOut(true);
 		threadPool.setMaximumPoolSize(maximumThreads);
 
-		fastJMXVals = null;
-		if (collectInternal) {
-			if (Collectd.getDS("fastjmx") == null) {
-				Collectd.logError("FastJMX Plugin: Cannot collect internal metrics. Please add '﻿fastjmx\t\tvalue:GAUGE:0:U' to your types.db");
-			} else {
-				PluginData fastJMXPd = new PluginData();
-				fastJMXPd.setHost("localhost");
-				fastJMXPd.setPlugin("FastJMX");
-
-				fastJMXVals = new ValueList(fastJMXPd);
-				fastJMXVals.setType(Collectd.getDS("fastjmx").getType());
-			}
-		}
-
 		this.clear();
+
+		fastJMXCycle = null;
+		fastJMXLatency = null;
+		if (collectInternal) {
+			PluginData fastJMXPd = new PluginData();
+			fastJMXPd.setHost("localhost");
+			fastJMXPd.setPlugin("FastJMX");
+
+			fastJMXGauge = new ValueList(fastJMXPd);
+			fastJMXGauge.setType(Collectd.getDS("gauge").getType());
+
+			if (Collectd.getDS("fastjmx_cycle") == null) {
+				Collectd.logError("FastJMX Plugin: Cannot collect internal metrics. Please ensure types.db contains: 'fastjmx_cycle  value:GAUGE:0:U'.");
+				return;
+			}
+
+			if (Collectd.getDS("fastjmx_latency") == null) {
+				Collectd.logError("FastJMX Plugin: Cannot collect internal metrics. Please ensure types.db contains: 'fastjmx_latency  value:GAUGE:0:U'.");
+				return;
+			}
+
+			fastJMXCycle = new ValueList(fastJMXPd);
+			fastJMXCycle.setType(Collectd.getDS("fastjmx_cycle").getType());
+			fastJMXLatency = new ValueList(fastJMXPd);
+			fastJMXLatency.setType(Collectd.getDS("fastjmx_latency").getType());
+		}
 	}
 
 	/**
@@ -216,13 +230,13 @@ public class SelfTuningCollectionExecutor {
 		}
 
 		ReadCycleResult cycle = new ReadCycleResult(failed, cancelled, success, start, System.nanoTime(), threadPool.getCorePoolSize(), interval);
-		internalDispatch(dispatchable, "failed", failed);
-		internalDispatch(dispatchable, "success", success);
-		internalDispatch(dispatchable, "cancelled", cancelled);
-		internalDispatch(dispatchable, "duration", cycle.getDurationMs());
-		internalDispatch(dispatchable, "weight", cycle.getWeight());
-		internalDispatch(dispatchable, "threads", threadPool.getCorePoolSize());
-		internalDispatch(dispatchable, "interval", interval);
+		internalDispatch(dispatchable, fastJMXCycle, "failed", failed);
+		internalDispatch(dispatchable, fastJMXCycle, "success", success);
+		internalDispatch(dispatchable, fastJMXCycle, "cancelled", cancelled);
+		internalDispatch(dispatchable, fastJMXCycle, "weight", cycle.getWeight());
+		internalDispatch(dispatchable, fastJMXLatency, "interval", interval);
+		internalDispatch(dispatchable, fastJMXLatency, "duration", cycle.getDurationMs());
+		internalDispatch(dispatchable, fastJMXGauge, "threads", threadPool.getCorePoolSize());
 
 		push(cycle);
 
@@ -239,9 +253,9 @@ public class SelfTuningCollectionExecutor {
 		Collectd.dispatchValues(vl);
 	}
 
-	private void internalDispatch(final List<ValueList> appendTo, final String typeInstance, final Number value) {
-		if (fastJMXVals != null) {
-			ValueList vl = new ValueList(fastJMXVals);
+	private void internalDispatch(final List<ValueList> appendTo, final ValueList copy, final String typeInstance, final Number value) {
+		if (copy != null) {
+			ValueList vl = new ValueList(copy);
 			vl.setTypeInstance(typeInstance);
 			vl.setValues(Arrays.asList(value));
 			appendTo.add(vl);
@@ -367,6 +381,12 @@ public class SelfTuningCollectionExecutor {
 					threadCount = Math.min(fiba + fibb, threadCount);
 					getNextFibonacci();
 					Collectd.logDebug("FastJMX Plugin: After limiting to next fibonacci value: " + threadCount);
+				}
+
+				// If we find a minimum below our current pool size, reset the sequence.
+				if (threadCount < threadPool.getCorePoolSize()) {
+					Collectd.logDebug("Optimal threadpool size: " + threadCount + " less than current pool size!");
+					resetFibonacci();
 				}
 			}
 

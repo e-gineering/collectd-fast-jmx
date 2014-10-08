@@ -46,6 +46,8 @@ Additional Configuration Options:
 * Include `PluginName` declarations in a `<Value>` block to change the plugin name it's reported as.
 * Use `<MBean>` or `<MXBean>` or `<Bean>`.
 * `Composite` and `Table` can be used interchangeably to define a `<Value>`, and can be omitted (defaults to `false`).
+* `MaxThreads` can change the default maximum number of threads (512) to allow.
+* `CollectInternal` enables internal metrics FastJMX uses to be reported back to Collectd.
 
 ```
 LoadPlugin java
@@ -55,6 +57,9 @@ LoadPlugin java
   LoadPlugin "org.collectd.FastJMX"
 
   <Plugin "FastJMX">
+
+    MaxThreads 256
+    CollectInternal true
   
     <MBean "classes">
       ObjectName "java.lang:type=ClassLoading"
@@ -62,7 +67,7 @@ LoadPlugin java
       <Value "LoadedClassCount">
         Type "gauge"
         InstancePrefix "loaded_classes"
-	      PluginName "JVM"
+	PluginName "JVM"
       </Value>
     </MBean>
 
@@ -99,7 +104,7 @@ LoadPlugin java
       <Value "Usage">
         Type "java_memory"
         Composite true
-	      PluginName "JVM"
+	PluginName "JVM"
       </Value>
     </MBean>
 
@@ -131,3 +136,44 @@ LoadPlugin java
 
   </Plugin>
   ```
+
+## Internal Metrics
+FastJMX collects some internal metrics that it uses to estimate an efficient pool size.
+If you enable internal metric collection (see above configuration options) and have the following types defined in types.db, the data will be submitted to collectd.
+
+```
+fastjmx_cycle      value:GAUGE:0:U
+fastjmx_latency    value:GAUGE:0:U
+```
+
+Once you've got collectd keeping your data, you may find these Collection3 graph configurations useful...
+```
+<Type fastjmx_cycle>
+  Module GenericStacked
+  DataSources value
+  RRDTitle "FastJMX Reads ({plugin_instance})"
+  RRDFormat "%6.1lf"
+  DSName "cancelled Incomplete "
+  DSName "  success Success    "
+  DSName "   failed Failed     "
+  DSName "   weight Weight     "
+  Order success cancelled failed weight
+  Color failed ff0000
+  Color cancelled ffb000
+  Color success 00e000
+  Color weight 0000ff
+  Stacking on
+</Type>
+<Type fastjmx_latency>
+  Module GenericStacked
+  DataSources value
+  RRDTitle "FastJMX Latency ({plugin_instance})"
+  RRDFormat "%6.1lf"
+  DSName "interval Interval" 
+  DSName "duration Latency "
+  Order interval duration 
+  Color duration ffb000
+  Color interval 00e000
+  Stacking off
+</Type>
+```
