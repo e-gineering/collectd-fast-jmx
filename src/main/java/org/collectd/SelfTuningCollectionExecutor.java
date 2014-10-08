@@ -65,16 +65,12 @@ public class SelfTuningCollectionExecutor {
 	private long interval = 0l;
 	private TimeUnit intervalUnit = TimeUnit.MILLISECONDS;
 
-	// If the target latency is set and the threshold is violated, we try to find an optimum that will complete within
-	// the target timeframe.
-	private long targetLatency = -1;
-
 	// Seed for a fibonacci sequence, which is used to manipulate pool sizing in search of data points for analysis.
 	int fiba = 1;
 	int fibb = 0;
 
 	public SelfTuningCollectionExecutor(final int maximumThreads) {
-		ring = new ReadCycleResult[15];
+		ring = new ReadCycleResult[45];
 		minIndependent = 7;
 		this.maxThreads = maximumThreads;
 		threadPool = new ThreadPoolExecutor(1, 1, 10, TimeUnit.SECONDS,
@@ -108,23 +104,18 @@ public class SelfTuningCollectionExecutor {
 			throw new IllegalArgumentException("Histogram does not support pushing 'null' values.");
 		}
 
-		// Make sure we keep track of this.
-		cycle.setPoolSize(threadPool.getCorePoolSize());
+		Collectd.logDebug("FastJMX Plugin: " + cycle);
+		if (cycle.getTotal() <= 0) {
+			return;
+		}
 
-		// If we aren't set to
-		if (!recalculateOptimum) {
-			// If the cycle violated the target latency...
-			if (targetLatency != -1 && cycle.getDuration() > targetLatency) {
-				recalculateOptimum = true;
-			} else if (cycle.triggerRecalculate(peek())) {
-				recalculateOptimum = true;
-			}
+		if (cycle.triggerRecalculate(peek())) {
+			recalculateOptimum = true;
 		}
 
 		// Modify the ring buffer.
 		ring[index] = cycle;
 		index = (index + 1) % ring.length;
-		Collectd.logDebug("FastJMX Plugin: " + cycle);
 
 		if (recalculateOptimum) {
 			int threadCount = calculateOptimum();
@@ -173,7 +164,6 @@ public class SelfTuningCollectionExecutor {
 			ReadCycleResult previousCycle = peek();
 			interval = TimeUnit.NANOSECONDS.convert((start - (previousCycle != null ? previousCycle.getStarted() : loaded)), TimeUnit.NANOSECONDS);
 			intervalUnit = TimeUnit.NANOSECONDS;
-			targetLatency = TimeUnit.NANOSECONDS.convert(interval / 2, intervalUnit);
 			if (interval * 2 > 0) {
 				threadPool.setKeepAliveTime(interval * 2, intervalUnit);
 			}
@@ -210,11 +200,8 @@ public class SelfTuningCollectionExecutor {
 			}
 		}
 
-		ReadCycleResult completedCycle = new ReadCycleResult(failed, cancelled, success, start, System.nanoTime(), interval);
-		// If there was anything to add to the histogram, add it here.
-		if (completedCycle.getTotal() > 0) {
-			push(completedCycle);
-		}
+		push(new ReadCycleResult(failed, cancelled, success, start, System.nanoTime(), threadPool.getCorePoolSize(), interval));
+
 		return results;
 	}
 

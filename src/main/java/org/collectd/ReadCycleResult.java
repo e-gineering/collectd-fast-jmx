@@ -1,5 +1,7 @@
 package org.collectd;
 
+import org.collectd.api.Collectd;
+
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -16,7 +18,7 @@ public class ReadCycleResult {
 	private int success = 0;
 	private int total = 0;
 
-	public ReadCycleResult(final int failed, final int cancelled, final int success, final long started, final long ended, final long interval) {
+	public ReadCycleResult(final int failed, final int cancelled, final int success, final long started, final long ended, final int poolSize, final long interval) {
 		this.failed = failed;
 		this.cancelled = cancelled;
 		this.success = success;
@@ -24,11 +26,8 @@ public class ReadCycleResult {
 		this.ended = ended;
 		this.total = failed + cancelled + success;
 		this.duration = ended - started;
-		this.interval = interval;
-	}
-
-	public void setPoolSize(int poolSize) {
 		this.poolSize = poolSize;
+		this.interval = interval;
 	}
 
 	public int getPoolSize() {
@@ -43,10 +42,6 @@ public class ReadCycleResult {
 		return new Double(((success + failed) / duration) * Math.pow(2, poolSize)).hashCode();
 	}
 
-	public long getDuration() {
-		return duration;
-	}
-
 	public long getStarted() {
 		return started;
 	}
@@ -58,9 +53,13 @@ public class ReadCycleResult {
 	 */
 	public boolean triggerRecalculate(ReadCycleResult previousCycle) {
 		if (previousCycle != null) {
-			if (previousCycle.poolSize != poolSize ||
-					    (this.cancelled > 0 && previousCycle.cancelled != this.cancelled))
-			{
+			if (previousCycle.poolSize != poolSize) {
+				Collectd.logInfo("FastJMX Plugin: triggering recalculation due to pool size change");
+				return true;
+			} else if (this.cancelled > 0 && previousCycle.cancelled > 0 && this.cancelled > previousCycle.cancelled) {
+				Collectd.logInfo("FastJMX Plugin: trigger recalculation due to trend of increasing cancellations");
+				Collectd.logInfo("Current Cycle: " + this);
+				Collectd.logInfo("Previous Cycle: " + previousCycle);
 				return true;
 			}
 		}
