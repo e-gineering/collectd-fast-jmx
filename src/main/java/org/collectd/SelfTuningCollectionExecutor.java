@@ -375,6 +375,10 @@ public class SelfTuningCollectionExecutor {
 		}
 
 		recalculateOptimum = false;
+		// If we ever end up at maxThreads, reset.
+		if (threadCount == maxThreads) {
+			clear();
+		}
 		return threadCount;
 	}
 
