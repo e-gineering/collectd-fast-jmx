@@ -67,7 +67,7 @@ LoadPlugin java
       <Value "LoadedClassCount">
         Type "gauge"
         InstancePrefix "loaded_classes"
-	PluginName "JVM"
+        PluginName "JVM"
       </Value>
     </MBean>
 
@@ -78,7 +78,7 @@ LoadPlugin java
       <Value "TotalCompilationTime">
         Type "total_time_in_ms"
         InstancePrefix "compilation_time"
-      	PluginName "JVM"
+        PluginName "JVM"
       </Value>
     </MBean>
 
@@ -104,7 +104,7 @@ LoadPlugin java
       <Value "Usage">
         Type "java_memory"
         Composite true
-	PluginName "JVM"
+        PluginName "JVM"
       </Value>
     </MBean>
 
