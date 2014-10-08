@@ -54,10 +54,10 @@ public class ReadCycleResult {
 	public boolean triggerRecalculate(ReadCycleResult previousCycle) {
 		if (previousCycle != null) {
 			if (previousCycle.poolSize != poolSize) {
-				Collectd.logInfo("FastJMX Plugin: triggering recalculation due to pool size change");
+				Collectd.logDebug("FastJMX Plugin: triggering recalculation due to pool size change");
 				return true;
 			} else if (this.cancelled > 0 && previousCycle.cancelled > 0 && this.cancelled > previousCycle.cancelled) {
-				Collectd.logInfo("FastJMX Plugin: trigger recalculation due to trend of increasing cancellations");
+				Collectd.logDebug("FastJMX Plugin: trigger recalculation due to trend of increasing cancellations");
 				return true;
 			}
 		}

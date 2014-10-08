@@ -47,6 +47,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	static {
 		System.getProperties().put("sun.rmi.transport.tcp.connectTimeout", TimeUnit.MILLISECONDS.convert(10, TimeUnit.SECONDS));
 		System.getProperties().put("sun.rmi.transport.tcp.handshakeTimeout", TimeUnit.MILLISECONDS.convert(10, TimeUnit.SECONDS));
+		System.getProperties().put("sun.rmi.transport.tcp.responseTimeout", TimeUnit.MILLISECONDS.convert(10, TimeUnit.SECONDS));
 	}
 
 	public FastJMX() {

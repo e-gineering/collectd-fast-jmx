@@ -32,6 +32,7 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 
 	private long lastRunDuration = 0l;
 	private boolean interruptedOrFailed = false;
+	private List<ValueList> dispatch = new ArrayList<ValueList>(1);
 
 	private AttributePermutation(final ObjectName objectName, final Connection connection, final Attribute attribute, final PluginData pd, final ValueList vl) {
 		this.objectName = objectName;
@@ -132,12 +133,8 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 		return objectName;
 	}
 
-	public Attribute getAttribute() {
-		return attribute;
-	}
-
-	public void setInterval(final long value, final TimeUnit timeUnit) {
-		this.valueList.setInterval(TimeUnit.MILLISECONDS.convert(value, timeUnit));
+	public List<ValueList> getValues() {
+		return dispatch;
 	}
 
 	/**
@@ -184,10 +181,12 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 	 */
 	public AttributePermutation call() throws Exception {
 		long start = System.nanoTime();
+		dispatch.clear();
 		// Snapshot the value list for this 'call', Value lists are built at the end of the call(),
 		// and if another thread call()s while this one is still running, it could trounce the interval
 		// and report back duplicates to collectd.
 		ValueList callVal = new ValueList(this.valueList);
+		callVal.setTime(System.currentTimeMillis());
 		interruptedOrFailed = true;
 		try {
 			MBeanServerConnection mbs = connection.getServerConnection();
@@ -258,13 +257,13 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 					vl.setTypeInstance(vl.getTypeInstance() + key);
 					vl.setValues(genericCompositeToNumber(cdList, key));
 					Collectd.logDebug("FastJMX plugin: dispatch " + vl);
-					Collectd.dispatchValues(vl);
+					dispatch.add(vl);
 				}
 			} else if (!values.contains(null)) {
 				ValueList vl = new ValueList(callVal);
 				vl.setValues(genericListToNumber(values));
 				Collectd.logDebug("FastJMX plugin: dispatch " + vl);
-				Collectd.dispatchValues(vl);
+				dispatch.add(vl);
 			}
 			interruptedOrFailed = false;
 		} catch (IOException ioe) {
