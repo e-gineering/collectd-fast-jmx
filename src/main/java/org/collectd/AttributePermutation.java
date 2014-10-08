@@ -186,7 +186,6 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 		// and if another thread call()s while this one is still running, it could trounce the interval
 		// and report back duplicates to collectd.
 		ValueList callVal = new ValueList(this.valueList);
-		callVal.setTime(System.currentTimeMillis());
 		interruptedOrFailed = true;
 		try {
 			MBeanServerConnection mbs = connection.getServerConnection();

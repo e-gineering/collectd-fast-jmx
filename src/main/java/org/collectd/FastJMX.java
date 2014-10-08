@@ -23,7 +23,6 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -34,9 +33,8 @@ import java.util.concurrent.TimeUnit;
  */
 public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, CollectdReadInterface, CollectdShutdownInterface, NotificationListener {
 
-	private long reads = 0;
-
-	private SelfTuningCollectionExecutor executor = new SelfTuningCollectionExecutor(512);
+	private long reads;
+	private SelfTuningCollectionExecutor executor;
 
 	private static List<Attribute> attributes = new ArrayList<Attribute>();
 	private static HashSet<Connection> connections = new HashSet<Connection>();
@@ -261,6 +259,9 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 * @return
 	 */
 	public int init() {
+		this.reads = 0;
+		this.executor = new SelfTuningCollectionExecutor(512, true);
+
 		// Open connections.
 		for (Connection connectionEntry : connections) {
 			connectionEntry.connect();
@@ -289,10 +290,8 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 				reads = 1;
 			}
 
-			List<Future<AttributePermutation>> results = new ArrayList<Future<AttributePermutation>>(0);
 			synchronized (collectablePermutations) {
 				Collections.sort(collectablePermutations);
-
 				try {
 					executor.invokeAll(collectablePermutations);
 				} catch (InterruptedException ie) {

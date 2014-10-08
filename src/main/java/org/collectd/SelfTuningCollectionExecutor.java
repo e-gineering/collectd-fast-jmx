@@ -18,9 +18,11 @@ import org.apache.commons.math3.optim.univariate.SearchInterval;
 import org.apache.commons.math3.optim.univariate.UnivariateObjectiveFunction;
 import org.apache.commons.math3.optim.univariate.UnivariatePointValuePair;
 import org.collectd.api.Collectd;
+import org.collectd.api.PluginData;
 import org.collectd.api.ValueList;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -64,22 +66,38 @@ public class SelfTuningCollectionExecutor {
 	private boolean recalculateOptimum;
 
 	private long interval = 0l;
-	private TimeUnit intervalUnit = TimeUnit.MILLISECONDS;
 
 	private ArrayList<ValueList> dispatchable = new ArrayList<ValueList>();
+
+	private ValueList fastJMXVals;
+
 
 	// Seed for a fibonacci sequence, which is used to manipulate pool sizing in search of data points for analysis.
 	int fiba = 1;
 	int fibb = 0;
 
-	public SelfTuningCollectionExecutor(final int maximumThreads) {
+	public SelfTuningCollectionExecutor(final int maximumThreads, final boolean collectInternal) {
 		ring = new ReadCycleResult[45];
 		minIndependent = 7;
-		this.maxThreads = maximumThreads;
+		maxThreads = maximumThreads;
 		threadPool = new ThreadPoolExecutor(1, 1, 10, TimeUnit.SECONDS,
 				                                   new LinkedBlockingQueue<Runnable>(), new FastJMXThreadFactory());
 		threadPool.allowCoreThreadTimeOut(true);
 		threadPool.setMaximumPoolSize(maximumThreads);
+
+		fastJMXVals = null;
+		if (collectInternal) {
+			if (Collectd.getDS("fastjmx") == null) {
+				Collectd.logError("FastJMX Plugin: Cannot collect internal metrics. Please add '﻿fastjmx\t\tvalue:GAUGE:0:U' to your types.db");
+			} else {
+				PluginData fastJMXPd = new PluginData();
+				fastJMXPd.setHost("localhost");
+				fastJMXPd.setPlugin("FastJMX");
+
+				fastJMXVals = new ValueList(fastJMXPd);
+				fastJMXVals.setType(Collectd.getDS("fastjmx").getType());
+			}
+		}
 
 		this.clear();
 	}
@@ -111,7 +129,7 @@ public class SelfTuningCollectionExecutor {
 		if (cycle.getTotal() <= 0) {
 			return;
 		} else if (cycle.getCancelled() > 0) {
-			Collectd.logWarning("FastJMX Plugin: Failed to collect " + cycle.getCancelled() + " samples within read interval. You may be attempting to collect too many metrics via JMX...");
+			Collectd.logWarning("FastJMX Plugin: Failed to collect " + cycle.getCancelled() + " of " + cycle.getTotal() + " samples within read interval with " + threadPool.getCorePoolSize() +" threads.");
 		}
 
 		if (cycle.triggerRecalculate(peek())) {
@@ -140,10 +158,10 @@ public class SelfTuningCollectionExecutor {
 		threadPool.shutdown();
 		try {
 			// Wait a while for existing tasks to terminate
-			if (!threadPool.awaitTermination(interval, intervalUnit)) {
+			if (!threadPool.awaitTermination(interval, TimeUnit.MILLISECONDS)) {
 				threadPool.shutdownNow(); // Cancel currently executing tasks
 				// Wait a while for tasks to respond to being cancelled
-				if (!threadPool.awaitTermination(interval, intervalUnit)) {
+				if (!threadPool.awaitTermination(interval, TimeUnit.MILLISECONDS)) {
 					Collectd.logWarning("FastJMX plugin: ThreadPool did not terminate cleanly.");
 				}
 			}
@@ -167,21 +185,14 @@ public class SelfTuningCollectionExecutor {
 		List<Future<AttributePermutation>> results;
 		try {
 			ReadCycleResult previousCycle = peek();
-			interval = TimeUnit.NANOSECONDS.convert((start - (previousCycle != null ? previousCycle.getStarted() : loaded)), TimeUnit.NANOSECONDS);
-			intervalUnit = TimeUnit.NANOSECONDS;
+			interval = TimeUnit.MILLISECONDS.convert((start - (previousCycle != null ? previousCycle.getStarted() : loaded)), TimeUnit.NANOSECONDS);
 			if (interval * 2 > 0) {
-				threadPool.setKeepAliveTime(interval * 2, intervalUnit);
+				threadPool.setKeepAliveTime(interval * 2, TimeUnit.MILLISECONDS);
 			}
-
-			if (interval > 0) {
-				results = threadPool.invokeAll(tasks, TimeUnit.MILLISECONDS.convert(interval, intervalUnit), TimeUnit.MILLISECONDS);
-			} else {
-				results = threadPool.invokeAll(tasks);
-			}
+			results = threadPool.invokeAll(tasks, interval - 500, TimeUnit.MILLISECONDS);
 		} finally {
 			threadPool.purge();
 		}
-
 
 		int failed = 0;
 		int cancelled = 0;
@@ -204,7 +215,16 @@ public class SelfTuningCollectionExecutor {
 			}
 		}
 
-		push(new ReadCycleResult(failed, cancelled, success, start, System.nanoTime(), threadPool.getCorePoolSize(), interval));
+		ReadCycleResult cycle = new ReadCycleResult(failed, cancelled, success, start, System.nanoTime(), threadPool.getCorePoolSize(), interval);
+		internalDispatch(dispatchable, "failed", failed);
+		internalDispatch(dispatchable, "success", success);
+		internalDispatch(dispatchable, "cancelled", cancelled);
+		internalDispatch(dispatchable, "duration", cycle.getDurationMs());
+		internalDispatch(dispatchable, "weight", cycle.getWeight());
+		internalDispatch(dispatchable, "threads", threadPool.getCorePoolSize());
+		internalDispatch(dispatchable, "interval", interval);
+
+		push(cycle);
 
 		// In a single pass, remove and clear the element.
 		for (int i = dispatchable.size() - 1; i >= 0; i--) {
@@ -215,8 +235,17 @@ public class SelfTuningCollectionExecutor {
 	}
 
 	private void dispatch(final ValueList vl) {
-		vl.setInterval(TimeUnit.MILLISECONDS.convert(interval, intervalUnit));
+		vl.setInterval(interval);
 		Collectd.dispatchValues(vl);
+	}
+
+	private void internalDispatch(final List<ValueList> appendTo, final String typeInstance, final Number value) {
+		if (fastJMXVals != null) {
+			ValueList vl = new ValueList(fastJMXVals);
+			vl.setTypeInstance(typeInstance);
+			vl.setValues(Arrays.asList(value));
+			appendTo.add(vl);
+		}
 	}
 
 

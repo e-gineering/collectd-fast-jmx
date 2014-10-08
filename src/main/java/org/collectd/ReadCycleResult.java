@@ -27,7 +27,7 @@ public class ReadCycleResult {
 		this.total = failed + cancelled + success;
 		this.duration = ended - started;
 		this.poolSize = poolSize;
-		this.interval = interval;
+		this.interval = TimeUnit.NANOSECONDS.convert(interval, TimeUnit.MILLISECONDS);
 	}
 
 	public int getPoolSize() {
