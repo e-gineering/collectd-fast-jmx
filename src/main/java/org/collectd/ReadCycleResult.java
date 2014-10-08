@@ -58,12 +58,14 @@ public class ReadCycleResult {
 				return true;
 			} else if (this.cancelled > 0 && previousCycle.cancelled > 0 && this.cancelled > previousCycle.cancelled) {
 				Collectd.logInfo("FastJMX Plugin: trigger recalculation due to trend of increasing cancellations");
-				Collectd.logInfo("Current Cycle: " + this);
-				Collectd.logInfo("Previous Cycle: " + previousCycle);
 				return true;
 			}
 		}
 		return false;
+	}
+
+	public int getCancelled() {
+		return cancelled;
 	}
 
 	/**

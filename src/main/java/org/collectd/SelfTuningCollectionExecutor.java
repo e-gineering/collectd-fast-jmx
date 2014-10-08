@@ -104,9 +104,11 @@ public class SelfTuningCollectionExecutor {
 			throw new IllegalArgumentException("Histogram does not support pushing 'null' values.");
 		}
 
-		Collectd.logDebug("FastJMX Plugin: " + cycle);
+		Collectd.logInfo("FastJMX Plugin: " + cycle);
 		if (cycle.getTotal() <= 0) {
 			return;
+		} else if (cycle.getCancelled() > 0) {
+			Collectd.logWarning("FastJMX Plugin: Failed to collect all samples for read cycle. You may be attempting to collect too many metrics via JMX...");
 		}
 
 		if (cycle.triggerRecalculate(peek())) {
@@ -195,7 +197,7 @@ public class SelfTuningCollectionExecutor {
 			} catch (CancellationException ce) {
 				cancelled++;
 			} catch (InterruptedException ie) {
-				Collectd.logDebug("FastJMX plugin: Interrupted while doing post-read interrogation.");
+				Collectd.logWarning("FastJMX plugin: Interrupted while doing post-read interrogation.");
 				break;
 			}
 		}
@@ -278,7 +280,7 @@ public class SelfTuningCollectionExecutor {
 			List<Integer> valueKeys = new ArrayList<Integer>(valueMap.keySet());
 			Collections.sort(valueKeys, numberComparator);
 
-			Collectd.logDebug("FastJMX Plugin: " + valueKeys.size() + " of " + minIndependent + " unique pool sizes for optimal projection");
+			Collectd.logInfo("FastJMX Plugin: " + valueKeys.size() + " of " + minIndependent + " unique pool sizes for optimal projection");
 			if (valueKeys.size() < minIndependent) {
 				threadCount = getNextFibonacci();
 			} else {
@@ -291,7 +293,7 @@ public class SelfTuningCollectionExecutor {
 					independent[i] = key.doubleValue();
 					observation[i] = averageDuration(valueMap.get(key));
 					weights[i] = weight(valueMap.get(key));
-					Collectd.logDebug("FastJMX Plugin: Point: " + independent[i] + "," + observation[i] + " weight: " + weights[i]);
+					Collectd.logInfo("FastJMX Plugin: Point: " + independent[i] + "," + observation[i] + " weight: " + weights[i]);
 				}
 
 				QuadraticProblem qp = new QuadraticProblem(independent, observation, weights);
@@ -315,11 +317,14 @@ public class SelfTuningCollectionExecutor {
 						                                                 new UnivariateObjectiveFunction(qFunc),
 						                                                 MaxEval.unlimited(), MaxIter.unlimited());
 
-				Collectd.logDebug("FastJMX Plugin: Found minimum value: " + optimalMin.getValue() + " @ " + optimalMin.getPoint());
+				Collectd.logInfo("FastJMX Plugin: Found minimum value: " + optimalMin.getValue() + " @ " + optimalMin.getPoint());
 				threadCount = Math.max((int) Math.round(optimalMin.getPoint()), 1);
 
-				// Reset the fibonacci sequence to a decent position.
-				resetFibonacci(threadCount / 4);
+				// If the thread count is bigger than the current fibonacci value, clamp it to the next fibonacci sequence value.
+				if (threadCount > (fiba + fibb)) {
+					threadCount = Math.min(fiba + fibb, threadCount);
+					Collectd.logInfo("FastJMX Plugin: After limiting to next fibonacci value: " + threadCount);
+				}
 			}
 
 			// Clamp the new value to maxThreads....
