@@ -180,3 +180,38 @@ Once you've got collectd keeping your data, you may find these Collection3 graph
   Stacking off
 </Type>
 ```
+
+## Debugging & Troubleshooting
+
+There are a couple additional configuration options worth nothing, which are helpful if you're troubleshooting an issue.
+
+* `LogLevel` sets the Plugins internal Java log level. By default this is 'INFO'. Meaning any log message generated internall that's INFO or greater will be logged to Collectd at the approprate (corresponding) Collectd Log Level...
+* `ForceLoggingTo` Lets you override the normal behavior of mapping Java log levels to collectd log levels, and forces all java log output to be logged at this collectd level.
+
+So under normal operation, things logged in java as SEVERE are logged at ERROR in Collectd, etc.
+
+Setting `ForceLoggingTo "INFO"` will make all Java logging output log in Collectd at INFO.
+
+If your normal Collectd configuration sets the collectd log level to WARNING, but you want to get 'INFO' from the FastJMX plugin, you can do this:
+
+```
+<Plugin "FastJMX">
+   LogLevel "INFO"
+   ForceLoggingTo "WARNING"
+
+   ...
+</Plugin>
+```
+
+If you'd like to see FINE logging from FastJMX use:
+
+```
+<Plugin "FastJMX">
+   LogLevel "FINE"
+   ForceLoggingTo "WARNING"
+</Plugin>
+```
+
+Basically, you're setting the java logger write any messages >= `FINE`, and to write those messages as Collectd `WARNING` messages.
+It gives a little more control over the verbosity of this single plugin.
+

@@ -11,11 +11,7 @@ import java.util.logging.LogRecord;
  * Delegate global java.util.logging to the Collectd.log method.
  */
 public class CollectdLogHandler extends Handler {
-	int forceLevel = 0;
-
-	public void setForceLevel(int forceLevel) {
-		this.forceLevel = forceLevel;
-	}
+	int collectdLogLevel = -1;
 
 	@Override
 	public void publish(LogRecord record) {
@@ -33,7 +29,17 @@ public class CollectdLogHandler extends Handler {
 		// CONFIG = NOTICE
 		// FINE || FINER || FINEST = DEBUG
 
-		if (record.getLevel() == Level.SEVERE) {
+		if (collectdLogLevel > 0 && collectdLogLevel == Collectd.LOG_ERR) {
+			Collectd.logError(message.toString());
+		} else if (collectdLogLevel >= 0 && collectdLogLevel == Collectd.LOG_WARNING) {
+			Collectd.logWarning(message.toString());
+		} else if (collectdLogLevel >= 0 && collectdLogLevel == Collectd.LOG_INFO) {
+			Collectd.logInfo(message.toString());
+		} else if (collectdLogLevel >= 0 && collectdLogLevel == Collectd.LOG_NOTICE) {
+			Collectd.logNotice(message.toString());
+		} else if (collectdLogLevel >= 0 && collectdLogLevel == Collectd.LOG_DEBUG) {
+			Collectd.logDebug(message.toString());
+		} else if (record.getLevel() == Level.SEVERE) {
 			Collectd.logWarning(message.toString());
 		} else if (record.getLevel() == Level.WARNING) {
 			Collectd.logWarning(message.toString());
@@ -44,6 +50,10 @@ public class CollectdLogHandler extends Handler {
 		} else {
 			Collectd.logDebug(message.toString());
 		}
+	}
+
+	public void forceAllLoggingTo(int collectdLogLevel) {
+		this.collectdLogLevel = collectdLogLevel;
 	}
 
 	@Override

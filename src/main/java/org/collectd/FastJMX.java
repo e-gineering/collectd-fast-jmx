@@ -46,6 +46,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 			Collections.synchronizedList(new ArrayList<AttributePermutation>(100));
 
 	private static Logger logger = Logger.getLogger(FastJMX.class.getPackage().getName());
+	private static CollectdLogHandler handler = new CollectdLogHandler();
 
 	static {
 		System.getProperties().put("sun.rmi.transport.tcp.connectTimeout", TimeUnit.MILLISECONDS.convert(10, TimeUnit.SECONDS));
@@ -53,7 +54,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 		System.getProperties().put("sun.rmi.transport.tcp.responseTimeout", TimeUnit.MILLISECONDS.convert(10, TimeUnit.SECONDS));
 
 		// Configure java.util.logging
-		logger.addHandler(new CollectdLogHandler());
+		logger.addHandler(handler);
 		logger.setLevel(Level.INFO);
 	}
 
@@ -79,7 +80,8 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 * <li>"table" and "composite" are aliases for each other.</li>
 	 * <li>"user" and "username" are aliases for each other.</li>
 	 * <li>"ttl" may be added to the 'Connection' definition. After a connection is live for this amount of time, it will be closed and re-opened.</li>
-	 * <li></li>
+	 * <li>"forceLoggingTo" will force all logging output to this Collectd log level.</li>
+	 * <li>"logLevel" Changes the internal java logging level (default is INFO). Can be used in conjunction with 'forceLoggingTo' to have FastJMX log more verbosely without affecting other collectd plugins.</li>
 	 * </ul>
 	 * <p/>
 	 * <pre>
@@ -87,7 +89,8 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 * <Plugin "FastJMX">
 	 *   MaxThreads 384
 	 *   CollectInternal true
-	 *   LogAt INFO
+	 *   ForceLoggingTo INFO
+	 *   loglevel FINEST
 	 *
 	 *   <MBean/MXBean/Bean "alias">
 	 *     ObjectName "java.lang:type=MemoryPool,*"
@@ -127,6 +130,31 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 				maxThreads = getConfigNumber(pluginChild, maxThreads).intValue();
 			} else if ("collectinternal".equalsIgnoreCase(pluginChild.getKey())) {
 				collectInternal = getConfigBoolean(pluginChild);
+			} else if ("forceLoggingTo".equalsIgnoreCase(pluginChild.getKey())) {
+				int forceLoggingTo = -1;
+				String level = getConfigString(pluginChild);
+				if (level.equalsIgnoreCase("ERROR")) {
+					forceLoggingTo = Collectd.LOG_ERR;
+				} else if (level.equalsIgnoreCase("WARNING")) {
+					forceLoggingTo = Collectd.LOG_WARNING;
+				} else if (level.equalsIgnoreCase("NOTICE")) {
+					forceLoggingTo = Collectd.LOG_NOTICE;
+				} else if (level.equalsIgnoreCase("INFO")) {
+					forceLoggingTo = Collectd.LOG_INFO;
+				} else if (level.equalsIgnoreCase("DEBUG")) {
+					forceLoggingTo = Collectd.LOG_DEBUG;
+				} else {
+					logger.warning("Unable to force collectd logging level: '" + level + "' is not ERROR, WARNING, NOTICE, INFO, or DEBUG.");
+				}
+				handler.forceAllLoggingTo(forceLoggingTo);
+			} else if ("loglevel".equalsIgnoreCase(pluginChild.getKey())) {
+				String javaLevel = getConfigString(pluginChild);
+
+				try {
+					logger.setLevel(Level.parse(javaLevel));
+				} catch (IllegalArgumentException iae) {
+					logger.severe("Unable to parse java Logging level from: '" + javaLevel + "'");
+				}
 			} else if ("mbean".equalsIgnoreCase(pluginChild.getKey()) || "mxbean".equalsIgnoreCase(pluginChild.getKey()) || "bean".equalsIgnoreCase(pluginChild.getKey())) {
 				String beanAlias = getConfigString(pluginChild).toLowerCase();
 				ObjectName matchObjectName = null;

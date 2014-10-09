@@ -262,16 +262,16 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 					ValueList vl = new ValueList(callVal);
 					vl.setTypeInstance(vl.getTypeInstance() + key);
 					vl.setValues(genericCompositeToNumber(cdList, key));
-					if (logger.isLoggable(Level.FINE)) {
-						logger.fine("dispatch " + vl);
+					if (logger.isLoggable(Level.FINEST)) {
+						logger.finest("dispatch " + vl);
 					}
 					dispatch.add(vl);
 				}
 			} else if (!values.contains(null)) {
 				ValueList vl = new ValueList(callVal);
 				vl.setValues(genericListToNumber(values));
-				if (logger.isLoggable(Level.FINE)) {
-					logger.fine("dispatch " + vl);
+				if (logger.isLoggable(Level.FINEST)) {
+					logger.finest("dispatch " + vl);
 				}
 				dispatch.add(vl);
 			}

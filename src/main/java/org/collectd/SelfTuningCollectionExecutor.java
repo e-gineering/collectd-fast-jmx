@@ -225,13 +225,12 @@ public class SelfTuningCollectionExecutor {
 
 		for (int i = 0; i < results.size(); i++) {
 			Future<AttributePermutation> result = results.get(i);
-
 			try {
 				dispatchable.addAll(result.get().getValues());
 				success++;
 			} catch (ExecutionException ex) {
 				failed++;
-				logger.severe("Failed " + ex.getCause());
+				logger.warning("Failed to collect: " + ex.getCause());
 			} catch (CancellationException ce) {
 				cancelled++;
 			} catch (InterruptedException ie) {
