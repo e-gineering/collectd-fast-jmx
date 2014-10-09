@@ -34,18 +34,18 @@ I added two more hosts, with the same metrics.
 In further testing, I ended up pulling 99 metrics from 9 different remote servers, over a VPN with an average read cycle taking between 900ms and 1100ms.
 
 ## Configuration
-Migrate your existing GenericJMX config by:
+### Migrate from GenericJMX by...
 
 * Add the path to the fast-jmx jar in JVMARG
 * Include `LoadPlugin "org.collectd.FastJMX` in the `<Plugin "java">` block.
 
-Additional Configuration Options:
+### Additional FastJMX Options:
 
-* Remove the `hostname` from the `<Connection>` blocks. FastJMX can detect it if you don't include it.
+* Remove the `hostname` from the `<Connection>` blocks. FastJMX will do it's best to detect it from the jmx URI if you don't include it. If parsing has an issue, you'll see a message in the log.
 * Single-attribute `<Value>` blocks can use the syntax `<Value "attributeName">`. See the `<MBean "classes">` example below.
-* Include `PluginName` declarations in a `<Value>` block to change the plugin name it's reported as.
+* Include `PluginName` declarations in a `<Value>` block to change the plugin name it's reported as. Useful for grouping different MBeans as if they came from different applications, or subsystems.
 * Use `<MBean>` or `<MXBean>` or `<Bean>`.
-* `Composite` and `Table` can be used interchangeably to define a `<Value>`, and can be omitted (defaults to `false`).
+* `Composite` and `Table` can be used interchangeably within a `<Value>` block, and can be omitted (defaults to `false`).
 * `MaxThreads` can change the default maximum number of threads (512) to allow.
 * `CollectInternal` enables internal metrics FastJMX uses to be reported back to Collectd.
 * `TTL` can be used on a Connection to force a reconnect after `<value>` many seconds have elapsed. This can be handy if your server isn't correctly maintining mbeans after redployments. Keep in mind this is seconds, so '43200' = 12 hours.
