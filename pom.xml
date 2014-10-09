@@ -11,7 +11,7 @@
     <packaging>jar</packaging>
     <name>org.collectd.FastJMX</name>
 
-    <description>A collectd plugin for lower-latency JMX operations.</description>
+    <description>A collectd plugin for lower-latency JMX collection.</description>
     <url>http://github.com/bvarner/collectd-fast-jmx</url>
 
     <dependencies>
