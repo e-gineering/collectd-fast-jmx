@@ -48,6 +48,7 @@ Additional Configuration Options:
 * `Composite` and `Table` can be used interchangeably to define a `<Value>`, and can be omitted (defaults to `false`).
 * `MaxThreads` can change the default maximum number of threads (512) to allow.
 * `CollectInternal` enables internal metrics FastJMX uses to be reported back to Collectd.
+* `TTL` can be used on a Connection to force a reconnect after `<value>` many seconds have elapsed. This can be handy if your server isn't correctly maintining mbeans after redployments. Keep in mind this is seconds, so '43200' = 12 hours.
 
 ```
 LoadPlugin java
@@ -132,6 +133,8 @@ LoadPlugin java
       Collect "compilation"
       Collect "garbage_collector"
       Collect "memory_pool"
+      # Force the connection to reset every 4 hours.
+      TTL 14400
     </Connection>
 
   </Plugin>

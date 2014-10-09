@@ -1,13 +1,16 @@
 package org.collectd;
 
-import org.collectd.api.Collectd;
-
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Results of a read() cycle.
  */
 public class ReadCycleResult {
+
+	private static Logger logger = Logger.getLogger(ReadCycleResult.class.getPackage().getName());
+
 	private long started = 0;
 	private long ended = 0;
 	private long duration = 0;
@@ -48,16 +51,21 @@ public class ReadCycleResult {
 
 	/**
 	 * Comparing this cycle to the other one, should we recalculate for optimal pool size?
+	 *
 	 * @param previousCycle
 	 * @return
 	 */
 	public boolean triggerRecalculate(ReadCycleResult previousCycle) {
 		if (previousCycle != null) {
 			if (previousCycle.poolSize < poolSize) {
-				Collectd.logDebug("FastJMX Plugin: triggering recalculation due to pool growth.");
+				if (logger.isLoggable(Level.FINE)) {
+					logger.fine("Triggering recalculation due to pool growth.");
+				}
 				return true;
 			} else if (this.cancelled > 0 && previousCycle.cancelled > 0 && this.cancelled > previousCycle.cancelled) {
-				Collectd.logDebug("FastJMX Plugin: trigger recalculation due to trend of increasing cancellations");
+				if (logger.isLoggable(Level.FINE)) {
+					logger.fine("Triggering recalculation due to consecutive increases in cancellations.");
+				}
 				return true;
 			}
 		}
@@ -73,7 +81,7 @@ public class ReadCycleResult {
 	 * (total - cancellations / total) * ((interval - duration) / interval)
 	 */
 	public double getWeight() {
-		return (((double)total - cancelled) / total) + (((double)interval - duration) / interval);
+		return (((double) total - cancelled) / total) + (((double) interval - duration) / interval);
 	}
 
 	public long getDurationMs() {

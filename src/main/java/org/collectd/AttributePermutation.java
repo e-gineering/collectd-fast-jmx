@@ -1,11 +1,11 @@
 package org.collectd;
 
-import org.collectd.api.Collectd;
 import org.collectd.api.DataSource;
 import org.collectd.api.PluginData;
 import org.collectd.api.ValueList;
 
 import javax.management.AttributeNotFoundException;
+import javax.management.InstanceNotFoundException;
 import javax.management.MBeanServerConnection;
 import javax.management.ObjectName;
 import javax.management.openmbean.CompositeData;
@@ -18,12 +18,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Defines an actual permutation of an org.collectd.Attribute to be read from a org.collectd.Connection.
  */
 public class AttributePermutation implements Callable<AttributePermutation>, Comparable<AttributePermutation> {
+	private static Logger logger = Logger.getLogger(AttributePermutation.class.getName());
+
 	private ObjectName objectName;
 	private Connection connection;
 	private Attribute attribute;
@@ -32,6 +35,7 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 
 	private long lastRunDuration = 0l;
 	private boolean interruptedOrFailed = false;
+	private int consecutiveNotFounds = 0;
 	private List<ValueList> dispatch = new ArrayList<ValueList>(1);
 
 	private AttributePermutation(final ObjectName objectName, final Connection connection, final Attribute attribute, final PluginData pd, final ValueList vl) {
@@ -45,7 +49,7 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 	public static List<AttributePermutation> create(final ObjectName[] objectNames, final Connection connection, final Attribute context) {
 		// This method takes into account the beanInstanceFrom and valueInstanceFrom properties to create many AttributePermutations.
 		if (objectNames.length == 0) {
-			Collectd.logWarning("FastJMX plugin: No MBeans matched " + context.getObjectName() + " @ " + connection.getRawUrl());
+			logger.warning("No MBeans matched " + context.getObjectName() + " @ " + connection.getRawUrl());
 			return new ArrayList<AttributePermutation>(0);
 		}
 
@@ -68,13 +72,13 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 				String propertyValue = objName.getKeyProperty(propertyName);
 
 				if (propertyValue == null) {
-					Collectd.logError("FastJMX plugin: No such property [" + propertyName + "] in ObjectName [" + objName + "] for bean instance creation.");
+					logger.severe("No such property [" + propertyName + "] in ObjectName [" + objName + "] for bean instance creation.");
 				} else {
 					beanInstanceList.add(propertyValue);
 				}
 			}
 
-			if (connection.getConnectionInstancePrefix()!= null) {
+			if (connection.getConnectionInstancePrefix() != null) {
 				beanInstance.append(connection.getConnectionInstancePrefix());
 			}
 
@@ -100,7 +104,7 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 			for (String propertyName : context.getValueInstanceFrom()) {
 				String propertyValue = objName.getKeyProperty(propertyName);
 				if (propertyValue == null) {
-					Collectd.logError("FastJMX plugin: no such property [" + propertyName + "] in ObjectName [" + objName + "] for attribute instance creation.");
+					logger.severe("no such property [" + propertyName + "] in ObjectName [" + objName + "] for attribute instance creation.");
 				} else {
 					attributeInstanceList.add(propertyValue);
 				}
@@ -139,7 +143,7 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 
 	/**
 	 * Implements Comparable, allowing for a natural sort ordering of previous <em>successful</em> execution duration.
-	 *
+	 * <p/>
 	 * Executions previously cancelled or failed will be treated as 'not run', and have a duration of '0', making them
 	 * 'less than' by comparison. If both objects being compared have a run duration of 0, they are sorted according to
 	 * the computed hashCode() values.
@@ -206,6 +210,7 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 						} catch (AttributeNotFoundException anfe) {
 							value = mbs.invoke(objectName, node, null, null);
 						}
+						consecutiveNotFounds = 0;
 						if (Thread.currentThread().isInterrupted()) {
 							return this;
 						}
@@ -224,7 +229,9 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 						} else if (i + 1 == attributePath.getValue().size()) {
 							// TODO: Configure this so users can try to track down what isn't working.
 							// It's really annoying though, for things like LastGcInfo.duration, which are transient for things like CMS collectors.
-							Collectd.logDebug("FastJMX plugin: NULL read from " + path + " in " + objectName + " @ " + connection.getRawUrl());
+							if (logger.isLoggable(Level.FINE)) {
+								logger.fine("NULL read from " + path + " in " + objectName + " @ " + connection.getRawUrl());
+							}
 						}
 					}
 				}
@@ -255,18 +262,35 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 					ValueList vl = new ValueList(callVal);
 					vl.setTypeInstance(vl.getTypeInstance() + key);
 					vl.setValues(genericCompositeToNumber(cdList, key));
-					Collectd.logDebug("FastJMX plugin: dispatch " + vl);
+					if (logger.isLoggable(Level.FINE)) {
+						logger.fine("dispatch " + vl);
+					}
 					dispatch.add(vl);
 				}
 			} else if (!values.contains(null)) {
 				ValueList vl = new ValueList(callVal);
 				vl.setValues(genericListToNumber(values));
-				Collectd.logDebug("FastJMX plugin: dispatch " + vl);
+				if (logger.isLoggable(Level.FINE)) {
+					logger.fine("dispatch " + vl);
+				}
 				dispatch.add(vl);
 			}
 			interruptedOrFailed = false;
 		} catch (IOException ioe) {
 			throw ioe;
+		} catch (InstanceNotFoundException infe) {
+			// The FastJMX plugin wasn't notified of the mbean unregister prior to the collect cycle.
+			// This can be a valid case, if the server unregistered the bean during a read cycle (when the collection
+			// of AttributePermutations is locked) -- and should result in the AttributePermutation being removed before
+			// the next collect cycle. (proper behavior).
+			//
+			// If for some reason this exception occurs in consecutive read cycles, consider it a suspect server
+			// implementation and schedule a reconnect for the connection, so we re-discover the MBeans on the server.
+			consecutiveNotFounds++;
+			if (consecutiveNotFounds >= 2) {
+				connection.scheduleReconnect();
+			}
+			throw infe;
 		} catch (Exception ex) {
 			throw ex;
 		} finally {

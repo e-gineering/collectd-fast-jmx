@@ -1,7 +1,5 @@
 package org.collectd;
 
-import org.collectd.api.Collectd;
-
 import javax.management.InstanceNotFoundException;
 import javax.management.ListenerNotFoundException;
 import javax.management.MBeanServerConnection;
@@ -19,11 +17,16 @@ import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Defines permutations for a host connection.
  */
 public class Connection implements NotificationListener {
+
+	private static Logger logger = Logger.getLogger(Connection.class.getName());
+
 	private String hostname;
 	private String rawUrl;
 	private JMXServiceURL serviceURL;
@@ -31,6 +34,7 @@ public class Connection implements NotificationListener {
 	private String password;
 	private String connectionInstancePrefix;
 	private List<String> beanAliases;
+	private long ttl;
 
 	private NotificationListener notificationListener;
 	private JMXConnector serverConnector;
@@ -39,7 +43,7 @@ public class Connection implements NotificationListener {
 	private Timer connectTimer;
 
 	public Connection(final NotificationListener notificationListener, final String rawUrl, final String hostname, final JMXServiceURL serviceURL, final String username,
-	                  final String password, final String connectionInstancePrefix, final List<String> beanAliases) {
+	                  final String password, final String connectionInstancePrefix, final List<String> beanAliases, final long ttl) {
 		this.notificationListener = notificationListener;
 		this.rawUrl = rawUrl;
 		this.hostname = hostname;
@@ -48,6 +52,7 @@ public class Connection implements NotificationListener {
 		this.password = password;
 		this.connectionInstancePrefix = connectionInstancePrefix;
 		this.beanAliases = beanAliases;
+		this.ttl = ttl;
 
 		this.serverConnector = null;
 		this.serverConnection = null;
@@ -55,7 +60,9 @@ public class Connection implements NotificationListener {
 	}
 
 	public void connect() {
-		Collectd.logDebug("FastJMX plugin: connect() for " + rawUrl);
+		if (logger.isLoggable(Level.FINE)) {
+			logger.fine("connect() for " + rawUrl);
+		}
 		ConnectTask task = new ConnectTask(0);
 		connectTimer.schedule(task, task.getDelay());
 	}
@@ -64,20 +71,25 @@ public class Connection implements NotificationListener {
 	 * Removes all NofiticationListeners and closes the connections.
 	 */
 	public void close() {
-		Collectd.logDebug("FastJMX plugin: Closing: " + rawUrl);
+		if (logger.isLoggable(Level.FINE)) {
+			logger.fine("Closing: " + rawUrl);
+		}
 		if (serverConnector != null) {
-			Collectd.logDebug("FastJMX plugin: Removing connection listeners for " + rawUrl);
+			if (logger.isLoggable(Level.FINE)) {
+				logger.fine("Removing connection listeners for " + rawUrl);
+			}
+
 			try {
 				serverConnector.removeConnectionNotificationListener(notificationListener);
 				serverConnector.removeConnectionNotificationListener(this);
 			} catch (ListenerNotFoundException lnfe) {
-				Collectd.logDebug("FastJMX plugin: Couldn't unregister ourselves from our JMXConnector.");
+				logger.severe("Failed to unregister connection listeners for " + rawUrl);
 			}
 
 			try {
 				serverConnector.close();
 			} catch (IOException ioe) {
-				Collectd.logWarning("FastJMX plugin: Exception closing JMXConnection: " + ioe.getMessage());
+				logger.warning("Exception closing JMXConnection: " + ioe.getMessage());
 			}
 		}
 
@@ -90,7 +102,7 @@ public class Connection implements NotificationListener {
 		if (serverConnector == null && serverConnection == null) {
 			throw new IOException("Not Connected to: " + rawUrl);
 		} else if (serverConnector != null && serverConnection == null) {
-			Collectd.logNotice("FastJMX plugin: Returning serverConnector.getMbeanServerConnection(). POSSIBLE RACE.");
+			logger.warning("Returning serverConnector.getMbeanServerConnection(). POSSIBLE RACE.");
 			return serverConnector.getMBeanServerConnection();
 		}
 		return serverConnection;
@@ -111,15 +123,18 @@ public class Connection implements NotificationListener {
 				try {
 					serverConnection = serverConnector.getMBeanServerConnection();
 					serverConnection.addNotificationListener(MBeanServerDelegate.DELEGATE_NAME, notificationListener, null, this);
+					if (ttl > 0) {
+						connectTimer.schedule(new ReconnectTask(), TimeUnit.MILLISECONDS.convert(ttl, TimeUnit.SECONDS));
+					}
 				} catch (IOException ioe) {
-					Collectd.logWarning("FastJMX plugin: Could not get mbeanServerConnection to: " + rawUrl + " exception message: " + ioe.getMessage());
+					logger.warning("Could not get mbeanServerConnection to: " + rawUrl + " exception message: " + ioe.getMessage());
 					close();
 					ConnectTask backoffConnect = new ConnectTask(0);
 					connectTimer.schedule(backoffConnect, backoffConnect.getDelay());
 				} catch (InstanceNotFoundException infe) {
-					Collectd.logNotice("FastJMX plugin: Could not register MBeanServerDelegate. I will not be able to detect newly deployed or undeployed beans at: " + rawUrl);
+					logger.config("Could not register MBeanServerDelegate. FastJMX will be unable to detect newly deployed or undeployed beans at: " + rawUrl + ".\n" +
+							              "You can configure a 'ttl' for this connection to force reconnection and rediscovery of MBeans on a periodic basis.");
 				}
-				Collectd.logDebug("FastJMX plugin: OPENED");
 			}
 		}
 	}
@@ -160,6 +175,22 @@ public class Connection implements NotificationListener {
 		return false;
 	}
 
+	void scheduleReconnect() {
+		connectTimer.schedule(new ReconnectTask(), 0);
+	}
+
+	private class ReconnectTask extends TimerTask {
+		public void run() {
+			logger.info("Connection TTL expired for " + rawUrl + " forcing reconnect..");
+			try {
+				serverConnector.close();
+			} catch (IOException ioe) {
+				logger.severe("Failure to close for TTL reconnect to: " + rawUrl);
+			}
+
+		}
+	}
+
 
 	private class ConnectTask extends TimerTask {
 		private int connectBackoff = 0;
@@ -175,7 +206,7 @@ public class Connection implements NotificationListener {
 		@Override
 		public void run() {
 			this.cancel();
-			Collectd.logInfo("FastJMX plugin: Connecting to: " + rawUrl);
+			logger.info("Connecting to: " + rawUrl);
 
 			if (connectBackoff == 0) {
 				connectBackoff = 5;
@@ -200,11 +231,13 @@ public class Connection implements NotificationListener {
 					serverConnector.addConnectionNotificationListener(Connection.this, null, null);
 					serverConnector.addConnectionNotificationListener(notificationListener, null, Connection.this);
 					serverConnector.connect();
-					Collectd.logDebug("FastJMX plugin: ServerConnector connect() invoked.");
+					if (logger.isLoggable(Level.FINE)) {
+						logger.fine("ServerConnector connect() invoked.");
+					}
 				} catch (IOException ioe) {
-					Collectd.logWarning("FastJMX plugin: Could not connect to : " + rawUrl + " exception message: " + ioe.getMessage());
+					logger.warning("Could not connect to : " + rawUrl + " exception message: " + ioe.getMessage());
 					close();
-					Collectd.logNotice("FastJMX plugin: Scheduling reconnect to: " + rawUrl + " in " + connectBackoff + " seconds.");
+					logger.info("Scheduling reconnect to: " + rawUrl + " in " + connectBackoff + " seconds.");
 					ConnectTask backoffConnect = new ConnectTask(connectBackoff);
 					connectTimer.schedule(backoffConnect, backoffConnect.getDelay());
 				}

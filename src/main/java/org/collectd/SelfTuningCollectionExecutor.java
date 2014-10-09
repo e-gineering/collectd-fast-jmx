@@ -34,6 +34,8 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 
 /**
@@ -46,6 +48,9 @@ import java.util.concurrent.TimeUnit;
  * The actual goal, of course, is to find the optimal number of threads to execute the given tasks with.
  */
 public class SelfTuningCollectionExecutor {
+
+	private static Logger logger = Logger.getLogger(SelfTuningCollectionExecutor.class.getName());
+
 	private static ThreadGroup fastJMXThreads = new ThreadGroup("FastJMX");
 	private static ThreadGroup mbeanReaders = new ThreadGroup(fastJMXThreads, "MbeanReaders");
 	private static long loaded = System.nanoTime();
@@ -100,12 +105,12 @@ public class SelfTuningCollectionExecutor {
 			fastJMXGauge.setType(Collectd.getDS("gauge").getType());
 
 			if (Collectd.getDS("fastjmx_cycle") == null) {
-				Collectd.logError("FastJMX Plugin: Cannot collect internal metrics. Please ensure types.db contains: 'fastjmx_cycle  value:GAUGE:0:U'.");
+				logger.severe("Cannot collect internal metrics. Please ensure types.db contains: 'fastjmx_cycle  value:GAUGE:0:U'.");
 				return;
 			}
 
 			if (Collectd.getDS("fastjmx_latency") == null) {
-				Collectd.logError("FastJMX Plugin: Cannot collect internal metrics. Please ensure types.db contains: 'fastjmx_latency  value:GAUGE:0:U'.");
+				logger.severe("Cannot collect internal metrics. Please ensure types.db contains: 'fastjmx_latency  value:GAUGE:0:U'.");
 				return;
 			}
 
@@ -139,11 +144,14 @@ public class SelfTuningCollectionExecutor {
 			throw new IllegalArgumentException("Histogram does not support pushing 'null' values.");
 		}
 
-		Collectd.logDebug("FastJMX Plugin: " + cycle);
+		if (logger.isLoggable(Level.FINE)) {
+			logger.fine(cycle.toString());
+		}
+
 		if (cycle.getTotal() <= 0) {
 			return;
 		} else if (cycle.getCancelled() > 0) {
-			Collectd.logWarning("FastJMX Plugin: Failed to collect " + cycle.getCancelled() + " of " + cycle.getTotal() + " samples within read interval with " + threadPool.getCorePoolSize() +" threads.");
+			logger.warning("Failed to collect " + cycle.getCancelled() + " of " + cycle.getTotal() + " samples within read interval with " + threadPool.getCorePoolSize() + " threads.");
 		}
 
 		if (cycle.triggerRecalculate(peek())) {
@@ -158,7 +166,9 @@ public class SelfTuningCollectionExecutor {
 			int threadCount = calculateOptimum();
 
 			if (threadCount != threadPool.getCorePoolSize()) {
-				Collectd.logDebug("FastJMX Plugin: Setting thread pool size: " + threadCount);
+				if (logger.isLoggable(Level.FINE)) {
+					logger.fine("Setting thread pool size: " + threadCount);
+				}
 				threadPool.setCorePoolSize(threadCount);
 				threadPool.setMaximumPoolSize(threadCount);
 			}
@@ -176,7 +186,7 @@ public class SelfTuningCollectionExecutor {
 				threadPool.shutdownNow(); // Cancel currently executing tasks
 				// Wait a while for tasks to respond to being cancelled
 				if (!threadPool.awaitTermination(interval, TimeUnit.MILLISECONDS)) {
-					Collectd.logWarning("FastJMX plugin: ThreadPool did not terminate cleanly.");
+					logger.warning("ThreadPool did not terminate cleanly.");
 				}
 			}
 		} catch (InterruptedException ie) {
@@ -199,7 +209,8 @@ public class SelfTuningCollectionExecutor {
 		List<Future<AttributePermutation>> results;
 		try {
 			ReadCycleResult previousCycle = peek();
-			interval = TimeUnit.MILLISECONDS.convert((start - (previousCycle != null ? previousCycle.getStarted() : loaded)), TimeUnit.NANOSECONDS);
+			interval =
+					TimeUnit.MILLISECONDS.convert((start - (previousCycle != null ? previousCycle.getStarted() : loaded)), TimeUnit.NANOSECONDS);
 			if (interval * 2 > 0) {
 				threadPool.setKeepAliveTime(interval * 2, TimeUnit.MILLISECONDS);
 			}
@@ -220,16 +231,17 @@ public class SelfTuningCollectionExecutor {
 				success++;
 			} catch (ExecutionException ex) {
 				failed++;
-				Collectd.logError("FastJMX plugin: Failed " + ex.getCause());
+				logger.severe("Failed " + ex.getCause());
 			} catch (CancellationException ce) {
 				cancelled++;
 			} catch (InterruptedException ie) {
-				Collectd.logWarning("FastJMX plugin: Interrupted while doing post-read interrogation.");
+				logger.warning("Interrupted while doing post-read interrogation.");
 				break;
 			}
 		}
 
-		ReadCycleResult cycle = new ReadCycleResult(failed, cancelled, success, start, System.nanoTime(), threadPool.getCorePoolSize(), interval);
+		ReadCycleResult cycle =
+				new ReadCycleResult(failed, cancelled, success, start, System.nanoTime(), threadPool.getCorePoolSize(), interval);
 		internalDispatch(dispatchable, fastJMXCycle, "failed", failed);
 		internalDispatch(dispatchable, fastJMXCycle, "success", success);
 		internalDispatch(dispatchable, fastJMXCycle, "cancelled", cancelled);
@@ -265,6 +277,7 @@ public class SelfTuningCollectionExecutor {
 
 	/**
 	 * Looks at the last ReadCycleResult push()ed into the ring buffer
+	 *
 	 * @return
 	 */
 	private ReadCycleResult peek() {
@@ -275,7 +288,7 @@ public class SelfTuningCollectionExecutor {
 		return ring[pos - 1];
 	}
 
-	private void resetFibonacci(){
+	private void resetFibonacci() {
 		resetFibonacci(Runtime.getRuntime().availableProcessors());
 	}
 
@@ -287,11 +300,14 @@ public class SelfTuningCollectionExecutor {
 			fiba = fibb;
 			fibb = max - fiba;
 		}
-		Collectd.logDebug("FastJMX Plugin: Fibonacci reset to : " + fiba + ":" + fibb);
+		if (logger.isLoggable(Level.FINE)) {
+			logger.fine("Fibonacci reset to : " + fiba + ":" + fibb);
+		}
 	}
 
 	/**
 	 * Gets the next value in a fibonacci sequence....
+	 *
 	 * @return
 	 */
 	private int getNextFibonacci() {
@@ -305,13 +321,15 @@ public class SelfTuningCollectionExecutor {
 			current = getNextFibonacci();
 		}
 
-		Collectd.logDebug("FastJMX Plugin: fibonacci sequence generated: " + current);
+		if (logger.isLoggable(Level.FINE)) {
+			logger.fine("fibonacci sequence generated: " + current);
+		}
 		return current;
 	}
 
 	/**
 	 * Easily the most complex part of this class --
-	 *
+	 * <p/>
 	 * Using the ReadCycleResult objects in the ring buffer, organize the data into a hash map where the key is the
 	 * pool size, and the value is the duration it took to complete.
 	 *
@@ -336,7 +354,9 @@ public class SelfTuningCollectionExecutor {
 			List<Integer> valueKeys = new ArrayList<Integer>(valueMap.keySet());
 			Collections.sort(valueKeys, numberComparator);
 
-			Collectd.logDebug("FastJMX Plugin: " + valueKeys.size() + " of " + minIndependent + " unique pool sizes for optimal projection");
+			if (logger.isLoggable(Level.FINE)) {
+				logger.fine("" + valueKeys.size() + " of " + minIndependent + " unique pool sizes for optimal projection");
+			}
 			if (valueKeys.size() < minIndependent) {
 				threadCount = getNextFibonacci();
 			} else {
@@ -349,7 +369,9 @@ public class SelfTuningCollectionExecutor {
 					independent[i] = key.doubleValue();
 					observation[i] = averageDuration(valueMap.get(key));
 					weights[i] = weight(valueMap.get(key));
-					Collectd.logDebug("FastJMX Plugin: Point: " + independent[i] + "," + observation[i] + " weight: " + weights[i]);
+					if (logger.isLoggable(Level.FINE)) {
+						logger.fine("Point: " + independent[i] + "," + observation[i] + " weight: " + weights[i]);
+					}
 				}
 
 				QuadraticProblem qp = new QuadraticProblem(independent, observation, weights);
@@ -373,19 +395,25 @@ public class SelfTuningCollectionExecutor {
 						                                                 new UnivariateObjectiveFunction(qFunc),
 						                                                 MaxEval.unlimited(), MaxIter.unlimited());
 
-				Collectd.logDebug("FastJMX Plugin: Found minimum value: " + optimalMin.getValue() + " @ " + optimalMin.getPoint());
+				if (logger.isLoggable(Level.FINE)) {
+					logger.fine("Found minimum value: " + optimalMin.getValue() + " @ " + optimalMin.getPoint());
+				}
 				threadCount = Math.max((int) Math.round(optimalMin.getPoint()), 1);
 
 				// If the thread count is bigger than the current fibonacci value, clamp it to the next fibonacci sequence value.
 				if (threadCount > (fiba + fibb)) {
 					threadCount = Math.min(fiba + fibb, threadCount);
 					getNextFibonacci();
-					Collectd.logDebug("FastJMX Plugin: After limiting to next fibonacci value: " + threadCount);
+					if (logger.isLoggable(Level.FINE)) {
+						logger.fine("After limiting to next fibonacci value: " + threadCount);
+					}
 				}
 
 				// If we find a minimum below our current pool size, reset the sequence.
 				if (threadCount < threadPool.getCorePoolSize()) {
-					Collectd.logDebug("Optimal threadpool size: " + threadCount + " less than current pool size!");
+					if (logger.isLoggable(Level.FINE)) {
+						logger.fine("Optimal threadpool size: " + threadCount + " less than current pool size!");
+					}
 					resetFibonacci();
 				}
 			}
