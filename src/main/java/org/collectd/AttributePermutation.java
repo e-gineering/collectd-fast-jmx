@@ -1,11 +1,11 @@
 package org.collectd;
 
-import org.collectd.api.Collectd;
 import org.collectd.api.DataSource;
 import org.collectd.api.PluginData;
 import org.collectd.api.ValueList;
 
 import javax.management.AttributeNotFoundException;
+import javax.management.InstanceNotFoundException;
 import javax.management.MBeanServerConnection;
 import javax.management.ObjectName;
 import javax.management.openmbean.CompositeData;
@@ -18,12 +18,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Defines an actual permutation of an org.collectd.Attribute to be read from a org.collectd.Connection.
  */
-public class AttributePermutation implements Callable<AttributePermutation> {
+public class AttributePermutation implements Callable<AttributePermutation>, Comparable<AttributePermutation> {
+	private static Logger logger = Logger.getLogger(AttributePermutation.class.getName());
+
 	private ObjectName objectName;
 	private Connection connection;
 	private Attribute attribute;
@@ -31,6 +34,9 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 	private ValueList valueList;
 
 	private long lastRunDuration = 0l;
+	private boolean interruptedOrFailed = false;
+	private int consecutiveNotFounds = 0;
+	private List<ValueList> dispatch = new ArrayList<ValueList>(1);
 
 	private AttributePermutation(final ObjectName objectName, final Connection connection, final Attribute attribute, final PluginData pd, final ValueList vl) {
 		this.objectName = objectName;
@@ -40,19 +46,19 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 		this.valueList = vl;
 	}
 
-	public static List<AttributePermutation> create(final ObjectName[] objectNames, final Connection connection, final Attribute context, final long interval, final TimeUnit intervalUnit) {
+	public static List<AttributePermutation> create(final ObjectName[] objectNames, final Connection connection, final Attribute context) {
 		// This method takes into account the beanInstanceFrom and valueInstanceFrom properties to create many AttributePermutations.
 		if (objectNames.length == 0) {
-			Collectd.logWarning("FastJMX plugin: No MBeans matched " + context.findName + " @ " + connection.rawUrl);
+			logger.warning("No MBeans matched " + context.getObjectName() + " @ " + connection.getRawUrl());
 			return new ArrayList<AttributePermutation>(0);
 		}
 
 		List<AttributePermutation> permutations = new ArrayList<AttributePermutation>();
 
 		PluginData pd = new PluginData();
-		pd.setHost(connection.hostname);
-		if (context.pluginName != null) {
-			pd.setPlugin(context.pluginName);
+		pd.setHost(connection.getHostname());
+		if (context.getPluginName() != null) {
+			pd.setPlugin(context.getPluginName());
 		} else {
 			pd.setPlugin("FastJMX");
 		}
@@ -62,25 +68,25 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 			List<String> beanInstanceList = new ArrayList<String>();
 			StringBuilder beanInstance = new StringBuilder();
 
-			for (String propertyName : context.beanInstanceFrom) {
+			for (String propertyName : context.getBeanInstanceFrom()) {
 				String propertyValue = objName.getKeyProperty(propertyName);
 
 				if (propertyValue == null) {
-					Collectd.logError("FastJMX plugin: No such property [" + propertyName + "] in ObjectName [" + objName + "] for bean instance creation.");
+					logger.severe("No such property [" + propertyName + "] in ObjectName [" + objName + "] for bean instance creation.");
 				} else {
 					beanInstanceList.add(propertyValue);
 				}
 			}
 
-			if (connection.connectionInstancePrefix != null) {
-				beanInstance.append(connection.connectionInstancePrefix);
+			if (connection.getConnectionInstancePrefix() != null) {
+				beanInstance.append(connection.getConnectionInstancePrefix());
 			}
 
-			if (context.beanInstancePrefix != null) {
+			if (context.getBeanInstancePrefix() != null) {
 				if (beanInstance.length() > 0) {
 					beanInstance.append("-");
 				}
-				beanInstance.append(context.beanInstancePrefix);
+				beanInstance.append(context.getBeanInstancePrefix());
 			}
 
 			for (int i = 0; i < beanInstanceList.size(); i++) {
@@ -92,22 +98,21 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 			permutationPD.setPluginInstance(beanInstance.toString());
 
 			ValueList vl = new ValueList(permutationPD);
-			vl.setInterval(TimeUnit.MILLISECONDS.convert(interval, intervalUnit));
-			vl.setType(context.dataset.getType());
+			vl.setType(context.getDataSet().getType());
 
 			List<String> attributeInstanceList = new ArrayList<String>();
-			for (String propertyName : context.valueInstanceFrom) {
+			for (String propertyName : context.getValueInstanceFrom()) {
 				String propertyValue = objName.getKeyProperty(propertyName);
 				if (propertyValue == null) {
-					Collectd.logError("FastJMX plugin: no such property [" + propertyName + "] in ObjectName [" + objName + "] for attribute instance creation.");
+					logger.severe("no such property [" + propertyName + "] in ObjectName [" + objName + "] for attribute instance creation.");
 				} else {
 					attributeInstanceList.add(propertyValue);
 				}
 			}
 
 			StringBuilder attributeInstance = new StringBuilder();
-			if (context.valueInstancePrefix != null) {
-				attributeInstance.append(context.valueInstancePrefix);
+			if (context.getValueInstancePrefix() != null) {
+				attributeInstance.append(context.getValueInstancePrefix());
 			}
 
 			for (int i = 0; i < attributeInstanceList.size(); i++) {
@@ -132,17 +137,44 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 		return objectName;
 	}
 
-	public Attribute getAttribute() {
-		return attribute;
+	public List<ValueList> getValues() {
+		return dispatch;
 	}
 
-	public void setInterval(final long value, final TimeUnit timeUnit) {
-		this.valueList.setInterval(TimeUnit.MILLISECONDS.convert(value, timeUnit));
+	/**
+	 * Implements Comparable, allowing for a natural sort ordering of previous <em>successful</em> execution duration.
+	 * <p/>
+	 * Executions previously cancelled or failed will be treated as 'not run', and have a duration of '0', making them
+	 * 'less than' by comparison. If both objects being compared have a run duration of 0, they are sorted according to
+	 * the computed hashCode() values.
+	 *
+	 * @param o
+	 * @return
+	 */
+	public int compareTo(final AttributePermutation o) {
+
+		int i = -1 * Long.compare(getLastRunDuration(), o.getLastRunDuration());
+		if (i != 0) {
+			return i;
+		}
+
+		return Integer.compare(hashCode(), o.hashCode());
+	}
+
+	@Override
+	public boolean equals(Object obj) {
+		if (this == obj) {
+			return true;
+		} else if (obj instanceof AttributePermutation) {
+			return hashCode() == obj.hashCode();
+		} else {
+			return false;
+		}
 	}
 
 	@Override
 	public int hashCode() {
-		return (connection.hostname + connection.rawUrl + objectName.toString() + pluginData.getSource() + valueList.getType()).hashCode();
+		return (connection.getHostname() + connection.getRawUrl() + objectName.toString() + pluginData.getSource() + valueList.getType()).hashCode();
 	}
 
 	/**
@@ -153,11 +185,17 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 	 */
 	public AttributePermutation call() throws Exception {
 		long start = System.nanoTime();
+		dispatch.clear();
+		// Snapshot the value list for this 'call', Value lists are built at the end of the call(),
+		// and if another thread call()s while this one is still running, it could trounce the interval
+		// and report back duplicates to collectd.
+		ValueList callVal = new ValueList(this.valueList);
+		interruptedOrFailed = true;
 		try {
 			MBeanServerConnection mbs = connection.getServerConnection();
 
 			List<Object> values = new ArrayList<Object>(8);
-			for (Map.Entry<String, List<String>> attributePath : attribute.attributes.entrySet()) {
+			for (Map.Entry<String, List<String>> attributePath : attribute.getAttributes().entrySet()) {
 				Object value = null;
 				StringBuilder path = new StringBuilder();
 
@@ -172,6 +210,10 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 						} catch (AttributeNotFoundException anfe) {
 							value = mbs.invoke(objectName, node, null, null);
 						}
+						consecutiveNotFounds = 0;
+						if (Thread.currentThread().isInterrupted()) {
+							return this;
+						}
 					} else {
 						path.append(".").append(node);
 
@@ -181,22 +223,27 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 							value = compositeValue.get(node);
 						} else if (value instanceof OpenType) {
 							throw new UnsupportedOperationException("Handling of OpenType " + ((OpenType) value).getTypeName() + " is not yet implemented.");
-						} else {
+						} else if (value != null) {
 							// Try to traverse via Reflection.
 							value = value.getClass().getDeclaredField(node).get(value);
+						} else if (i + 1 == attributePath.getValue().size()) {
+							// TODO: Configure this so users can try to track down what isn't working.
+							// It's really annoying though, for things like LastGcInfo.duration, which are transient for things like CMS collectors.
+							if (logger.isLoggable(Level.FINE)) {
+								logger.fine("NULL read from " + path + " in " + objectName + " @ " + connection.getRawUrl());
+							}
 						}
 					}
-
-					if (value == null) {
-						throw new IllegalStateException("Could not read " + path + " from " + objectName + " @ " + connection.rawUrl);
-					}
 				}
-
 				values.add(value);
 			}
 
+			if (Thread.currentThread().isInterrupted()) {
+				return this;
+			}
+
 			// If we're expecting CompositeData objects to be brokenConnection up like a table, handle it.
-			if (attribute.composite) {
+			if (attribute.isComposite()) {
 				List<CompositeData> cdList = new ArrayList<CompositeData>();
 				Set<String> keys = null;
 
@@ -207,25 +254,43 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 						}
 						cdList.add((CompositeData) obj);
 					} else {
-						throw new IllegalArgumentException("At least one of the attributes from " + objectName + " @ " + connection.rawUrl + " was not a 'CompositeData' as requried when table|composite = 'true'");
+						throw new IllegalArgumentException("At least one of the attributes from " + objectName + " @ " + connection.getRawUrl() + " was not a 'CompositeData' as requried when table|composite = 'true'");
 					}
 				}
 
 				for (String key : keys) {
-					ValueList vl = new ValueList(this.valueList);
+					ValueList vl = new ValueList(callVal);
 					vl.setTypeInstance(vl.getTypeInstance() + key);
 					vl.setValues(genericCompositeToNumber(cdList, key));
-					Collectd.logDebug("FastJMX plugin: dispatch " + vl);
-					Collectd.dispatchValues(vl);
+					if (logger.isLoggable(Level.FINEST)) {
+						logger.finest("dispatch " + vl);
+					}
+					dispatch.add(vl);
 				}
-			} else {
-				ValueList vl = new ValueList(this.valueList);
+			} else if (!values.contains(null)) {
+				ValueList vl = new ValueList(callVal);
 				vl.setValues(genericListToNumber(values));
-				Collectd.logDebug("FastJMX plugin: dispatch " + vl);
-				Collectd.dispatchValues(vl);
+				if (logger.isLoggable(Level.FINEST)) {
+					logger.finest("dispatch " + vl);
+				}
+				dispatch.add(vl);
 			}
+			interruptedOrFailed = false;
 		} catch (IOException ioe) {
 			throw ioe;
+		} catch (InstanceNotFoundException infe) {
+			// The FastJMX plugin wasn't notified of the mbean unregister prior to the collect cycle.
+			// This can be a valid case, if the server unregistered the bean during a read cycle (when the collection
+			// of AttributePermutations is locked) -- and should result in the AttributePermutation being removed before
+			// the next collect cycle. (proper behavior).
+			//
+			// If for some reason this exception occurs in consecutive read cycles, consider it a suspect server
+			// implementation and schedule a reconnect for the connection, so we re-discover the MBeans on the server.
+			consecutiveNotFounds++;
+			if (consecutiveNotFounds >= 2) {
+				connection.scheduleReconnect();
+			}
+			throw infe;
 		} catch (Exception ex) {
 			throw ex;
 		} finally {
@@ -236,7 +301,10 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 	}
 
 	public long getLastRunDuration() {
-		return lastRunDuration;
+		if (!interruptedOrFailed) {
+			return lastRunDuration;
+		}
+		return 0l;
 	}
 
 	private List<Number> genericCompositeToNumber(final List<CompositeData> cdlist, final String key) {
@@ -257,7 +325,7 @@ public class AttributePermutation implements Callable<AttributePermutation> {
 
 	private List<Number> genericListToNumber(final List<Object> objects) throws IllegalArgumentException {
 		List<Number> ret = new ArrayList<Number>();
-		List<DataSource> dsrc = this.attribute.dataset.getDataSources();
+		List<DataSource> dsrc = this.attribute.getDataSet().getDataSources();
 
 		for (int i = 0; i < objects.size(); i++) {
 			ret.add(genericObjectToNumber(objects.get(i), dsrc.get(i).getType()));

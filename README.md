@@ -34,18 +34,21 @@ I added two more hosts, with the same metrics.
 In further testing, I ended up pulling 99 metrics from 9 different remote servers, over a VPN with an average read cycle taking between 900ms and 1100ms.
 
 ## Configuration
-Migrate your existing GenericJMX config by:
+### Migrate from GenericJMX by...
 
 * Add the path to the fast-jmx jar in JVMARG
 * Include `LoadPlugin "org.collectd.FastJMX` in the `<Plugin "java">` block.
 
-Additional Configuration Options:
+### Additional FastJMX Options:
 
-* Remove the `hostname` from the `<Connection>` blocks. FastJMX can detect it if you don't include it.
+* Remove the `hostname` from the `<Connection>` blocks. FastJMX will do it's best to detect it from the jmx URI if you don't include it. If parsing has an issue, you'll see a message in the log.
 * Single-attribute `<Value>` blocks can use the syntax `<Value "attributeName">`. See the `<MBean "classes">` example below.
-* Include `PluginName` declarations in a `<Value>` block to change the plugin name it's reported as.
+* Include `PluginName` declarations in a `<Value>` block to change the plugin name it's reported as. Useful for grouping different MBeans as if they came from different applications, or subsystems.
 * Use `<MBean>` or `<MXBean>` or `<Bean>`.
-* `Composite` and `Table` can be used interchangeably to define a `<Value>`, and can be omitted (defaults to `false`).
+* `Composite` and `Table` can be used interchangeably within a `<Value>` block, and can be omitted (defaults to `false`).
+* `MaxThreads` can change the default maximum number of threads (512) to allow.
+* `CollectInternal` enables internal metrics FastJMX uses to be reported back to Collectd.
+* `TTL` can be used on a Connection to force a reconnect after `<value>` many seconds have elapsed. This can be handy if your server isn't correctly maintining mbeans after redployments. Keep in mind this is seconds, so '43200' = 12 hours.
 
 ```
 LoadPlugin java
@@ -55,6 +58,9 @@ LoadPlugin java
   LoadPlugin "org.collectd.FastJMX"
 
   <Plugin "FastJMX">
+
+    MaxThreads 256
+    CollectInternal true
   
     <MBean "classes">
       ObjectName "java.lang:type=ClassLoading"
@@ -62,7 +68,7 @@ LoadPlugin java
       <Value "LoadedClassCount">
         Type "gauge"
         InstancePrefix "loaded_classes"
-	      PluginName "JVM"
+        PluginName "JVM"
       </Value>
     </MBean>
 
@@ -73,7 +79,7 @@ LoadPlugin java
       <Value "TotalCompilationTime">
         Type "total_time_in_ms"
         InstancePrefix "compilation_time"
-      	PluginName "JVM"
+        PluginName "JVM"
       </Value>
     </MBean>
 
@@ -99,7 +105,7 @@ LoadPlugin java
       <Value "Usage">
         Type "java_memory"
         Composite true
-	      PluginName "JVM"
+        PluginName "JVM"
       </Value>
     </MBean>
 
@@ -127,7 +133,85 @@ LoadPlugin java
       Collect "compilation"
       Collect "garbage_collector"
       Collect "memory_pool"
+      # Force the connection to reset every 4 hours.
+      TTL 14400
     </Connection>
 
   </Plugin>
   ```
+
+## Internal Metrics
+FastJMX collects some internal metrics that it uses to estimate an efficient pool size.
+If you enable internal metric collection (see above configuration options) and have the following types defined in types.db, the data will be submitted to collectd.
+
+```
+fastjmx_cycle      value:GAUGE:0:U
+fastjmx_latency    value:GAUGE:0:U
+```
+
+Once you've got collectd keeping your data, you may find these Collection3 graph configurations useful...
+```
+<Type fastjmx_cycle>
+  Module GenericStacked
+  DataSources value
+  RRDTitle "FastJMX Reads ({plugin_instance})"
+  RRDFormat "%6.1lf"
+  DSName "cancelled Incomplete "
+  DSName "  success Success    "
+  DSName "   failed Failed     "
+  DSName "   weight Weight     "
+  Order success cancelled failed weight
+  Color failed ff0000
+  Color cancelled ffb000
+  Color success 00e000
+  Color weight 0000ff
+  Stacking on
+</Type>
+<Type fastjmx_latency>
+  Module GenericStacked
+  DataSources value
+  RRDTitle "FastJMX Latency ({plugin_instance})"
+  RRDFormat "%6.1lf"
+  DSName "interval Interval" 
+  DSName "duration Latency "
+  Order interval duration 
+  Color duration ffb000
+  Color interval 00e000
+  Stacking off
+</Type>
+```
+
+## Debugging & Troubleshooting
+
+There are a couple additional configuration options worth nothing, which are helpful if you're troubleshooting an issue.
+
+* `LogLevel` sets the Plugins internal Java log level. By default this is 'INFO'. Meaning any log message generated internall that's INFO or greater will be logged to Collectd at the approprate (corresponding) Collectd Log Level...
+* `ForceLoggingTo` Lets you override the normal behavior of mapping Java log levels to collectd log levels, and forces all java log output to be logged at this collectd level.
+
+So under normal operation, things logged in java as SEVERE are logged at ERROR in Collectd, etc.
+
+Setting `ForceLoggingTo "INFO"` will make all Java logging output log in Collectd at INFO.
+
+If your normal Collectd configuration sets the collectd log level to WARNING, but you want to get 'INFO' from the FastJMX plugin, you can do this:
+
+```
+<Plugin "FastJMX">
+   LogLevel "INFO"
+   ForceLoggingTo "WARNING"
+
+   ...
+</Plugin>
+```
+
+If you'd like to see FINE logging from FastJMX use:
+
+```
+<Plugin "FastJMX">
+   LogLevel "FINE"
+   ForceLoggingTo "WARNING"
+</Plugin>
+```
+
+Basically, you're setting the java logger write any messages >= `FINE`, and to write those messages as Collectd `WARNING` messages.
+It gives a little more control over the verbosity of this single plugin.
+
