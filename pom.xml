@@ -6,13 +6,19 @@
 
     <groupId>org.collectd</groupId>
     <artifactId>fast-jmx</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.1-SNAPSHOT</version>
 
     <packaging>jar</packaging>
     <name>org.collectd.FastJMX</name>
 
     <description>A collectd plugin for lower-latency JMX operations.</description>
     <url>http://github.com/bvarner/collectd-fast-jmx</url>
+    
+    <properties>
+        <maven.compiler.source>1.5</maven.compiler.source>
+        <maven.compiler.target>1.5</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties> 
     
     <dependencies>
     	<dependency>
@@ -36,7 +42,9 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>2.3.2</version>
                 <configuration>
-                    <encoding>${project.build.sourceEncoding}</encoding>
+                    <encoding>${project.build.sourceEncoding}</encoding>                   	
+                   	<source>${maven.compiler.source}</source>
+                   	<target>${maven.compiler.target}</target>
                 </configuration>
             </plugin>
             <plugin>
@@ -44,7 +52,7 @@
                 <artifactId>maven-resources-plugin</artifactId>
                 <version>2.4.3</version>
                 <configuration>
-                    <encoding>${project.build.sourceEncoding}</encoding>
+                    <encoding>${project.build.sourceEncoding}</encoding>                    
                 </configuration>
             </plugin>
 			<plugin>
@@ -72,9 +80,4 @@
             </plugin>            
         </plugins>
     </build>
-    <properties>
-        <maven.compiler.source>1.5</maven.compiler.source>
-        <maven.compiler.target>1.5</maven.compiler.target>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    </properties> 
 </project>
