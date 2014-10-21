@@ -153,12 +153,12 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 	 */
 	public int compareTo(final AttributePermutation o) {
 
-		int i = -1 * Long.compare(getLastRunDuration(), o.getLastRunDuration());
+		int i = -1 * Long.valueOf(getLastRunDuration()).compareTo(Long.valueOf(o.getLastRunDuration())); 				
 		if (i != 0) {
 			return i;
 		}
 
-		return Integer.compare(hashCode(), o.hashCode());
+		return Integer.valueOf(hashCode()).compareTo(Integer.valueOf(o.hashCode()));
 	}
 
 	@Override
