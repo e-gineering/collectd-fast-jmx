@@ -42,6 +42,7 @@ In further testing, I ended up pulling 99 metrics from 9 different remote server
 ### Additional FastJMX Options:
 
 * Remove the `hostname` from the `<Connection>` blocks. FastJMX will do it's best to detect it from the jmx URI if you don't include it. If parsing has an issue, you'll see a message in the log.
+* Asynch connection handling by default, but you can force synch by adding `Synchronous true` to a `<Connection>` block. If the url contains `remoting-jmx` which is interpreted as [JBoss Remoting](https://github.com/jbossas/remoting-jmx) then the synchronous wrapper is auto-magic-ally enabled.
 * Single-attribute `<Value>` blocks can use the syntax `<Value "attributeName">`. See the `<MBean "classes">` example below.
 * Include `PluginName` declarations in a `<Value>` block to change the plugin name it's reported as. Useful for grouping different MBeans as if they came from different applications, or subsystems.
 * Use `<MBean>` or `<MXBean>` or `<Bean>`.
