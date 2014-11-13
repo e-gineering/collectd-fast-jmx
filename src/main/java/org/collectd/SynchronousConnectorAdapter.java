@@ -24,9 +24,11 @@ public class SynchronousConnectorAdapter implements JMXConnector {
 	AtomicLong notificatioCounter = new AtomicLong();
 
 	private JMXConnector delegate;
+	private Connection manager;
 
-	public SynchronousConnectorAdapter(final JMXConnector connector) {
+	public SynchronousConnectorAdapter(final JMXConnector connector, Connection manager) {
 		this.delegate = connector;
+		this.manager = manager;
 	}
 
 	private void fireNotification(Notification n) {
@@ -48,6 +50,8 @@ public class SynchronousConnectorAdapter implements JMXConnector {
 	public void connect(Map<String, ?> env) throws IOException {
 		try {
 			delegate.connect(env);
+			// Force setting the MBeanServerConnection prior to invoking the callbacks. This avoids a potential race.
+			manager.setMBeanServerConnection(delegate.getMBeanServerConnection());
 			fireNotification(new JMXConnectionNotification(JMXConnectionNotification.OPENED, this, getConnectionId(), notificatioCounter.getAndIncrement(), "FastJMX SynchronousConnectorAdapter OPENED.", null));
 		} catch (IOException ioe) {
 			throw ioe;
