@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -26,6 +27,7 @@ import java.util.logging.Logger;
 public class Connection implements NotificationListener {
 
 	private static Logger logger = Logger.getLogger(Connection.class.getName());
+	private UUID connectionUuid;
 
 	private String hostname;
 	private String rawUrl;
@@ -35,6 +37,7 @@ public class Connection implements NotificationListener {
 	private String connectionInstancePrefix;
 	private List<String> beanAliases;
 	private long ttl;
+	private boolean forceSynchronous;
 
 	private NotificationListener notificationListener;
 	private JMXConnector serverConnector;
@@ -43,7 +46,8 @@ public class Connection implements NotificationListener {
 	private Timer connectTimer;
 
 	public Connection(final NotificationListener notificationListener, final String rawUrl, final String hostname, final JMXServiceURL serviceURL, final String username,
-	                  final String password, final String connectionInstancePrefix, final List<String> beanAliases, final long ttl) {
+	                  final String password, final String connectionInstancePrefix, final List<String> beanAliases, final long ttl, final boolean forceSynchronous) {
+		this.connectionUuid = UUID.randomUUID();
 		this.notificationListener = notificationListener;
 		this.rawUrl = rawUrl;
 		this.hostname = hostname;
@@ -53,10 +57,15 @@ public class Connection implements NotificationListener {
 		this.connectionInstancePrefix = connectionInstancePrefix;
 		this.beanAliases = beanAliases;
 		this.ttl = ttl;
+		this.forceSynchronous = forceSynchronous;
 
 		this.serverConnector = null;
 		this.serverConnection = null;
 		this.connectTimer = new Timer("Connect-" + rawUrl, true);
+	}
+
+	public UUID getUUID() {
+		return connectionUuid;
 	}
 
 	public void connect() {
@@ -115,6 +124,7 @@ public class Connection implements NotificationListener {
 	 * @param handback
 	 */
 	public void handleNotification(final Notification notification, final Object handback) {
+		logger.fine("Connection received Notification: " + notification);
 		if (notification instanceof JMXConnectionNotification) {
 			if (notification.getType().equals(JMXConnectionNotification.CLOSED) ||
 					    notification.getType().equals(JMXConnectionNotification.FAILED)) {
@@ -122,7 +132,9 @@ public class Connection implements NotificationListener {
 			} else if (notification.getType().equals(JMXConnectionNotification.OPENED)) {
 				try {
 					serverConnection = serverConnector.getMBeanServerConnection();
-					serverConnection.addNotificationListener(MBeanServerDelegate.DELEGATE_NAME, notificationListener, null, this);
+					logger.fine("Got MBeanServerConnection: " + serverConnection.getClass().getName());
+					serverConnection.addNotificationListener(MBeanServerDelegate.DELEGATE_NAME, notificationListener, null, this.connectionUuid);
+					logger.fine("Added NotificationListener.");
 					if (ttl > 0) {
 						connectTimer.schedule(new ReconnectTask(), TimeUnit.MILLISECONDS.convert(ttl, TimeUnit.SECONDS));
 					}
@@ -157,7 +169,7 @@ public class Connection implements NotificationListener {
 
 	@Override
 	public int hashCode() {
-		return (rawUrl + username + password + hostname + connectionInstancePrefix).hashCode();
+		return connectionUuid.hashCode();
 	}
 
 	@Override
@@ -181,13 +193,12 @@ public class Connection implements NotificationListener {
 
 	private class ReconnectTask extends TimerTask {
 		public void run() {
-			logger.info("Connection TTL expired for " + rawUrl + " forcing reconnect..");
+			logger.info("Error or TTL Expiration for " + rawUrl + " forcing reconnect..");
 			try {
 				serverConnector.close();
 			} catch (IOException ioe) {
 				logger.severe("Failure to close for TTL reconnect to: " + rawUrl);
 			}
-
 		}
 	}
 
@@ -228,12 +239,15 @@ public class Connection implements NotificationListener {
 
 				try {
 					serverConnector = JMXConnectorFactory.newJMXConnector(serviceURL, environment);
-					serverConnector.addConnectionNotificationListener(Connection.this, null, null);
-					serverConnector.addConnectionNotificationListener(notificationListener, null, Connection.this);
-					serverConnector.connect();
-					if (logger.isLoggable(Level.FINE)) {
-						logger.fine("ServerConnector connect() invoked.");
+					if (forceSynchronous) {
+						serverConnector = new SynchronousConnectorAdapter(serverConnector);
 					}
+					serverConnector.addConnectionNotificationListener(Connection.this, null, connectionUuid);
+					serverConnector.addConnectionNotificationListener(notificationListener, null, connectionUuid);
+					if (logger.isLoggable(Level.FINE)) {
+						logger.fine("Invoking " + serverConnector.getClass().getName() + ".connect() on " + Thread.currentThread().getName());
+					}
+					serverConnector.connect(environment);
 				} catch (IOException ioe) {
 					logger.warning("Could not connect to : " + rawUrl + " exception message: " + ioe.getMessage());
 					close();

@@ -277,6 +277,13 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 			}
 			interruptedOrFailed = false;
 		} catch (IOException ioe) {
+			// This normally comes about as an issue with the underlying connection. Specifically in debugging JBoss
+			// remoting connections, we may end up getting subclasses of IOException when the remoting connection has
+			// failed. I believe the best way to handle this is with the existing 'not found' reconnect behavior.
+			consecutiveNotFounds++;
+			if (consecutiveNotFounds >= 2) {
+				connection.scheduleReconnect();
+			}
 			throw ioe;
 		} catch (InstanceNotFoundException infe) {
 			// The FastJMX plugin wasn't notified of the mbean unregister prior to the collect cycle.

@@ -22,3 +22,4 @@ nb*.xml
 
 # Include the stuff in /lib
 !lib/**
+dependency-reduced-pom.xml

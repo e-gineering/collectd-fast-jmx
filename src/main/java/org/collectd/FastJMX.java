@@ -21,9 +21,11 @@ import java.io.IOException;
 import java.net.MalformedURLException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -40,7 +42,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	private SelfTuningCollectionExecutor executor;
 
 	private static List<Attribute> attributes = new ArrayList<Attribute>();
-	private static HashSet<Connection> connections = new HashSet<Connection>();
+	private static HashMap<UUID, Connection> connections = new HashMap<UUID, Connection>();
 
 	private static List<AttributePermutation> collectablePermutations =
 			Collections.synchronizedList(new ArrayList<AttributePermutation>(100));
@@ -230,6 +232,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 				String connectionInstancePrefix = null;
 				List<String> beanAliases = new ArrayList<String>();
 				long ttl = -1;
+				boolean forceSynchronous = false;
 
 				for (OConfigItem connectionChild : pluginChild.getChildren()) {
 					if ("user".equalsIgnoreCase(connectionChild.getKey()) || "username".equalsIgnoreCase(connectionChild.getKey())) {
@@ -252,6 +255,8 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 						hostnamePort = getConfigBoolean(connectionChild);
 					} else if ("ttl".equalsIgnoreCase("ttl")) {
 						ttl = getConfigNumber(connectionChild, ttl).longValue();
+					} else if ("synchronous".equalsIgnoreCase("synchronous")) {
+						forceSynchronous = getConfigBoolean(connectionChild).booleanValue();
 					}
 				}
 
@@ -281,8 +286,14 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 							hostName = hostName + "@" + port;
 						}
 
+						// JBoss remoting workaround.
+						if (rawUrl.contains("remoting-jmx://")) {
+							forceSynchronous = true;
+						}
+
 						// Now create the org.collectd.Connection and put it into our hashmap.
-						connections.add(new Connection(this, rawUrl, hostName, serviceURL, username, password, connectionInstancePrefix, beanAliases, ttl));
+						Connection c = new Connection(this, rawUrl, hostName, serviceURL, username, password, connectionInstancePrefix, beanAliases, ttl, forceSynchronous);
+						connections.put(c.getUUID(), c);
 					} else {
 						logger.severe("Excluding org.collectd.Connection for : " + serviceURL.toString() + ". No beans to collect.");
 					}
@@ -307,7 +318,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 		this.reads = 0;
 
 		// Open connections.
-		for (Connection connectionEntry : connections) {
+		for (Connection connectionEntry : connections.values()) {
 			connectionEntry.connect();
 		}
 
@@ -350,7 +361,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	public int shutdown() {
 		executor.shutdown();
 
-		for (Connection connectionEntry : connections) {
+		for (Connection connectionEntry : connections.values()) {
 			logger.info("Closing connection to: " + connectionEntry.getRawUrl());
 			connectionEntry.close();
 		}
@@ -452,7 +463,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 */
 	public void handleNotification(final Notification notification, final Object handback) {
 		if (notification instanceof JMXConnectionNotification) {
-			final Connection connection = (Connection) handback;
+			final Connection connection = connections.get(handback);
 
 			// If we get a connection opened, assume that the connection previously failed and we weren't notified.
 			// This can happen if you're running collectd in a VM and you suspend the VM for a long period of time.
@@ -466,7 +477,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 				connection.connect();
 			}
 		} else if (notification instanceof MBeanServerNotification) {
-			Connection connection = (Connection) handback;
+			Connection connection = connections.get(handback);
 			MBeanServerNotification serverNotification = (MBeanServerNotification) notification;
 
 			// A bean was added by a remote connection. Check it against the ObjectNames we're instrumenting.
