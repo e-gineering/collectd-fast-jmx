@@ -5,33 +5,25 @@ or more hosts, the latency to read the metrics can quickly exceed your interval 
 multiple hosts you can forget about having short intervals, and some of the configuration settings aren't exactly obvious. 
 Example: What do you mean I have to include the hostname? I gave you the serviceUrl!
 
-### Introducing FastJMX - Async ~~all~~ many of the things!
+### Introducing FastJMX!
 
 FastJMX does things differently than the GenericJMX plugin, but it does it in a manner that's configuration-compatible with the original plugin.
 (You read that right. There's just a few small tweaks to an existing configuration and FastJMX will take over)
 
-* FastJMX discovers all the matching beans when it first connects, then sets up listeners to the remote server so we get callbacks when any beans are added or removed from the server. This lets us identify all the permutations of the beans we need to read outside of the `read()` loop.
-* Reconnections are attempted with increasing backoff sleep durations. Again, outside of the read loop, so no other servers are blocked.
-* Each attribute read from an mbean is it's own potential thread. The JDK 1.5 Concurrent packages are used to pool threads, inflict interval timeouts on the read cycle, and to make sure the queue is clear at the end of each `read()` invocation eliminating backlogged metric reporting.
-* Each `read()` cycle is timeslot protected (synched to the interval configured in collectd) so that we never get old values and current values intermixed.
-* Each `<Value>` can define a custom `PluginName`, allowing you to segment your graphs into different plugin buckets rather than everything being "GenericJMX" or "FastJMX".
+* FastJMX discovers all the matching beans when it first connects, then sets up listeners to the remote server so we get callbacks when any beans are added or removed from the server. This lets us identify all the permutations of the beans we need to read outside of the `read()` loop, which reduces `read()` latency, as well as internal GC stress and memory pressure.
+* Reconnections are attempted with increasing backoff sleep durations. Again, outside of the read loop, so that collecting metrics from connections which aren't failed continues to work.
+* Each attribute read from an mbean is it's own potential thread. The JDK 1.5 Concurrent packages are used to pool threads, inflict interval timeouts on the read cycle, and to make sure the queue is clear at the end of each `read()` invocation eliminating backlogged (lagged) metric reporting. If there isn't a metric polled in a timely manner, it's a dropped read.
+* Each `read()` cycle is timeslot protected (synchronized to the interval configured in collectd) so that old values and current values are *never* intermixed.
+* Each `<Value>` can define a custom `PluginName`, allowing segementation of reported metrics into different plugin buckets rather than everything being reported as "GenericJMX" or "FastJMX".
 * The port can be appended to the hostname using `IncludePortInHostname`. This is very helpful in separating data from multiple JVM instances on the same host without needing to specify an `InstancePrefix` on the `<Connection>`.
-* Hostnames are automatically detected from the serviceURL. If the serviceURL is a complex type, like `service:jmx:rmi:///jndi/rmi://hostname:port/jmxrmi`, FastJMX will still properly parse the hostname and port. Of course, if you want to you could still define the hostname property like GenericJMX does...
+* Hostnames are automatically detected from the serviceURL. If the serviceURL is a complex type, like `service:jmx:rmi:///jndi/rmi://hostname:port/jmxrmi`, FastJMX will still properly parse the hostname and port. The `Hostname` property (part of the standard GenericJMX configuration) value is still respected if present.
 * FastJMX doesn't require connections be defined after the beans. `<MBean>` (or `<MXBean>`, or just `<Bean>`) and `<Connection>` blocks can come in _any_ order.
 
 ### So how much faster is it?
 
-In my testing, I was using the same linux VM to run GenericJMX and FastJMX, connecting to the same remote host. I was sampling 13 values (gc, memory, memory_pools, classes, compilation) from the remote host.
+In real-world collection scenarios, large volume remote collections from multiple hosts over a VPN improved from ~2500ms to collect (with GenericJMX) to ~120ms.
 
-* GenericJMX averaged ~2500ms over 30 reads.
-* FastJMX averaged ~120ms over 30 reads.
-
-I added two more hosts, with the same metrics.
-
-* GenericJMX averaged ~7500ms over 30 reads. 2.5 seconds longer than my 5 second interval.
-* FastJMX averaged ~260ms over 30 reads.
-
-In further testing, I ended up pulling 99 metrics from 9 different remote servers, over a VPN with an average read cycle taking between 900ms and 1100ms.
+If you really want to know what FastJMX is doing, add `CollectInternal true` to the plugin configuration. This tells FastJMX to dispatch internal metrics (success, failure, error, latency, thread pool size) to collectd.
 
 ## Configuration
 ### Migrate from GenericJMX by...
@@ -181,6 +173,70 @@ Once you've got collectd keeping your data, you may find these Collection3 graph
   Stacking off
 </Type>
 ```
+
+## JBoss EAP 6.x, AS 7.x
+The JBoss remoting JMX provider has been tested with EAP 6.x, and should work properly with AS 7.x as well.
+As part of getting this to work, some 'workarounds' are included in the FastJMX code-base, which may also apply to other JMX protocol providers. In the case of the JBoss jmx remoting, appropriate bugs and feature requests have been filed.
+
+### JBoss EAP 6 Classpath
+Here's an example JVMArg that works with jboss-eap-6.1
+```
+<Plugin java>
+	JVMArg "-Djava.class.path=/usr/share/collectd/java/collectd-api.jar:/usr/lib/jvm/java-7-oracle/lib/jconsole.jar:/usr/lib/jvm/java-7-oracle/lib/tools.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/remoting-jmx/main/remoting-jmx-1.1.0.Final-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/remoting3/main/jboss-remoting-3.2.16.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/logging/main/jboss-logging-3.1.2.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/xnio/main/xnio-api-3.0.7.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/xnio/nio/main/xnio-nio-3.0.7.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/sasl/main/jboss-sasl-1.0.3.Final-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/marshalling/main/jboss-marshalling-1.3.18.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/marshalling/river/main/jboss-marshalling-river-1.3.18.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/as/cli/main/jboss-as-cli-7.2.1.Final-redhat-10.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/staxmapper/main/staxmapper-1.1.0.Final-redhat-2.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/as/protocol/main/jboss-as-protocol-7.2.1.Final-redhat-10.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/dmr/main/jboss-dmr-1.1.6.Final-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/as/controller-client/main/jboss-as-controller-client-7.2.1.Final-redhat-10.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/threads/main/jboss-threads-2.1.0.Final-redhat-1.jar:/usr/share/collectd/java/fast-jmx-1.1-SNAPSHOT.jar"
+	LoadPlugin "org.collectd.FastJMX"
+	
+	...
+	
+</Plugin>
+```
+
+To connect as an administrator you shoudln't need to change anything in the jboss configuration.
+The following Connection block should work in this scenario.
+```
+<Connection>
+	ServiceURL "service:jmx:remoting-jmx://yourhostname:9999"
+	Username "admin"
+	Password "aR3allyStrongP@sswordThatOthersCanSee"
+	ttl 300
+	IncludePortInHostname false
+	Collect "classes"
+	...
+
+</Connection>
+```
+
+To connect as a normal application user, and expose JMX over the 'remoting' port in EAP 6.1, your domain (or standalone) configuration should include `use-management-endpoint="false"`, like so:
+```
+<subsystem xmlns="urn:jboss:domain:jmx:1.2">
+  <expose-resolved-model/>
+  <expose-expression-model/>
+  <remoting-connector use-management-endpoint="false"/>
+</subsystem>
+```
+
+This changes the port from 9999 (the default management port) to 4447 (the remoting port) and requires an *application* user rather than an *administration* user.
+
+You can add the application user using the 'add-user' script from the JBoss Bin dir:
+```
+$JBOSS_HOME/bin/add-user.sh --silent -a --user jmx --password <yourpasshere>
+```
+
+Then in your Connection block, you can use:
+```
+<Connection>
+	ServiceURL "service:jmx:remoting-jmx://yourhostname:4447"
+	Username "jmx"
+	Password "!amUnprivi1eged"
+	ttl 300
+	IncludePortInHostname false
+	Collect "classes"
+	...
+</Connection>
+```
+
+Which exposes a non-privileged username / password.
+
+*WARNING WARNING WARNING* This Unprivileged user will be able to invoke MBeans via JMX. *WARNING WARNING WARNING*\
 
 ## Debugging & Troubleshooting
 
