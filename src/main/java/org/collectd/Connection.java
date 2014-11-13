@@ -117,6 +117,10 @@ public class Connection implements NotificationListener {
 		return serverConnection;
 	}
 
+	void setMBeanServerConnection(MBeanServerConnection connection) {
+		this.serverConnection = connection;
+	}
+
 	/**
 	 * Cleans up the serverConnection if we're closed or fail.
 	 *
@@ -240,7 +244,7 @@ public class Connection implements NotificationListener {
 				try {
 					serverConnector = JMXConnectorFactory.newJMXConnector(serviceURL, environment);
 					if (forceSynchronous) {
-						serverConnector = new SynchronousConnectorAdapter(serverConnector);
+						serverConnector = new SynchronousConnectorAdapter(serverConnector, Connection.this);
 					}
 					serverConnector.addConnectionNotificationListener(Connection.this, null, connectionUuid);
 					serverConnector.addConnectionNotificationListener(notificationListener, null, connectionUuid);
