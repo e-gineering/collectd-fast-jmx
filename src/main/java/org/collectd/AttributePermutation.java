@@ -281,10 +281,6 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 			// remoting connections, we may end up getting subclasses of IOException when the remoting connection has
 			// failed. I believe the best way to handle this is with the existing 'not found' reconnect behavior.
 			consecutiveNotFounds++;
-			if (consecutiveNotFounds >= 2) {
-				connection.scheduleReconnect();
-			}
-			throw ioe;
 		} catch (InstanceNotFoundException infe) {
 			// The FastJMX plugin wasn't notified of the mbean unregister prior to the collect cycle.
 			// This can be a valid case, if the server unregistered the bean during a read cycle (when the collection
@@ -293,11 +289,10 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 			//
 			// If for some reason this exception occurs in consecutive read cycles, consider it a suspect server
 			// implementation and schedule a reconnect for the connection, so we re-discover the MBeans on the server.
+			// Turns out that this is incredibly common with JBoss AS >= EAP 6.x (7.x community and WildFly) due to the
+			// transition to their remoting-jmx provider, which does not support MBeanDelegate listeners (at this time)
+			//
 			consecutiveNotFounds++;
-			if (consecutiveNotFounds >= 2) {
-				connection.scheduleReconnect();
-			}
-			throw infe;
 		} catch (Exception ex) {
 			throw ex;
 		} finally {
@@ -305,6 +300,10 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 		}
 
 		return this;
+	}
+
+	int getConsecutiveNotFounds() {
+		return consecutiveNotFounds;
 	}
 
 	public long getLastRunDuration() {

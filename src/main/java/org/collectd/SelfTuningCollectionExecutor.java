@@ -21,6 +21,7 @@ import org.collectd.api.Collectd;
 import org.collectd.api.PluginData;
 import org.collectd.api.ValueList;
 
+import javax.management.InstanceNotFoundException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -226,8 +227,14 @@ public class SelfTuningCollectionExecutor {
 		for (int i = 0; i < results.size(); i++) {
 			Future<AttributePermutation> result = results.get(i);
 			try {
-				dispatchable.addAll(result.get().getValues());
-				success++;
+				AttributePermutation attribute = result.get();
+				if (attribute.getConsecutiveNotFounds() > 0) {
+					failed++;
+					logger.warning("Failed to collect: " + attribute.getObjectName() + "@" + attribute.getConnection().getRawUrl() + " InstanceNotFound consecutive count=" + attribute.getConsecutiveNotFounds());
+				} else {
+					dispatchable.addAll(result.get().getValues());
+					success++;
+				}
 			} catch (ExecutionException ex) {
 				failed++;
 				logger.warning("Failed to collect: " + ex.getCause());
