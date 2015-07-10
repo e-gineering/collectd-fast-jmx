@@ -153,7 +153,7 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 	 */
 	public int compareTo(final AttributePermutation o) {
 
-		int i = -1 * Long.valueOf(getLastRunDuration()).compareTo(Long.valueOf(o.getLastRunDuration())); 				
+		int i = -1 * Long.valueOf(getLastRunDuration()).compareTo(Long.valueOf(o.getLastRunDuration()));
 		if (i != 0) {
 			return i;
 		}
@@ -207,6 +207,16 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 
 						try {
 							value = mbs.getAttribute(objectName, node);
+						} catch (InstanceNotFoundException infe) {
+							// JBoss 4.2 / 5.1: java.lang MXBeans are invisible until the
+							// meta data was fetched.
+							// https://labs.consol.de/de/jmx4perl/2009/11/23/jboss-remote-jmx.html
+							try {
+								mbs.getMBeanInfo(objectName);
+							} catch (Exception e) {
+								// noop
+							}
+							throw infe;
 						} catch (AttributeNotFoundException anfe) {
 							value = mbs.invoke(objectName, node, null, null);
 						}
