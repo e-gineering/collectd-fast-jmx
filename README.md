@@ -42,6 +42,7 @@ If you really want to know what FastJMX is doing, add `CollectInternal true` to 
 * `MaxThreads` can change the default maximum number of threads (512) to allow.
 * `CollectInternal` enables internal metrics FastJMX uses to be reported back to Collectd.
 * `TTL` can be used on a Connection to force a reconnect after `<value>` many seconds have elapsed. This can be handy if your server isn't correctly maintining mbeans after redployments. Keep in mind this is seconds, so '43200' = 12 hours.
+* FastJMX can now traverse `TabularData` to pull out `CompositeData` values as tables, or track independent values.
 
 ```
 LoadPlugin java
@@ -86,6 +87,21 @@ LoadPlugin java
         Type "total_time_in_ms"
         InstancePrefix "collection_time"
       	PluginName "JVM"
+      </Value>
+      
+      # Reads the Par Eden Space data as a composite table
+      <Value "LastGcInfo.memoryUsageAfterGc.Par Eden Space">
+        Type "java_memory"
+        Composite true
+        InstancePrefix "pool-eden-after"
+        PluginName "JVM"
+      </Value>
+      
+      # Reads only the "used" portion of the Par Eden Space
+      <Value "LastGcInfo.memoryUsageAfterGc.Par Eden Space.used">
+        type "java_memory"
+        InstancePrefix "pool-eden-after-used"
+        PluginName "JVM"
       </Value>
     </MBean>
 
