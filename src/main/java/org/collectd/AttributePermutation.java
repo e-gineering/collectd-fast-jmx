@@ -10,10 +10,12 @@ import javax.management.MBeanServerConnection;
 import javax.management.ObjectName;
 import javax.management.openmbean.CompositeData;
 import javax.management.openmbean.OpenType;
+import javax.management.openmbean.TabularData;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -223,7 +225,60 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 							value = compositeValue.get(node);
 						} else if (value instanceof OpenType) {
 							throw new UnsupportedOperationException("Handling of OpenType " + ((OpenType) value).getTypeName() + " is not yet implemented.");
-						} else if (value != null) {
+                        } else if (value instanceof TabularData) {
+                            // A java.lang:type=GarbageCollector mbean
+                            // has an LastGcInfo attribute that is a
+                            // CompositeData value, which interesting
+                            // sub-value called memoryUsageAfterGc and
+                            // memoryUsageBeforeGc, which expose the
+                            // javax.management.openmbean.TabularData
+                            // interface. Each table exposes each heap
+                            // and nonheap memory pool using the name
+                            // of its java.lang:type=MemoryPool as the
+                            // TabularData key. The memory pool is a
+                            // CompositeData value that can be further
+                            // examined with Attribute dot notation.
+                            //   #mbean = java.lang:type=GarbageCollector,name=ParNew
+                            //   LastGcInfo = {
+                            //     memoryUsageAfterGc = {
+                            //       ( Par Survivor Space ) = {
+                            //         key = Par Survivor Space;
+                            //         value = {
+                            //           committed = 8716288;
+                            //           init = 8716288;
+                            //           max = 8716288;
+                            //           used = 79040;
+                            //          };
+                            //        };
+                            //       ...
+                            //      };
+                            //    };
+                            //
+                            // This java.conf entry would capture the state
+                            // of the "Par Eden Space" memory pool after the
+                            // most recent garbage collection invation:
+                            //    <MBean "java/garbage_collector">
+                            //      ObjectName "java.lang:type=GarbageCollector,*"
+                            //      <Value>
+                            //        Attribute "LastGcInfo.memoryUsageAfterGc.Par Eden Space"
+                            //        Table true
+                            //        Type "memory" # value:GAUGE:0:281474976710656
+                            //        InstancePrefix "pool-eden-after"
+                            //      </Value>
+                            //    </MBean>
+                            TabularData tabularValue = (TabularData) value;
+                            // The java API confirms this is always a Collection<CompositeData>, but that the interface
+                            // definition remains Collection<?> for compatibility. :-(
+                            Collection<CompositeData> tableData = (Collection<CompositeData>)tabularValue.values();
+
+                            // Look for the first CompositeData with the key = to the current node, then loop again.
+                            for (CompositeData compositeData : tableData) {
+                                if (compositeData.get("key").equals(node)) {
+                                    value = compositeData.get("value");
+                                    break;
+                                }
+                            }
+                        } else if (value != null) {
 							// Try to traverse via Reflection.
 							value = value.getClass().getDeclaredField(node).get(value);
 						} else if (i + 1 == attributePath.getValue().size()) {
