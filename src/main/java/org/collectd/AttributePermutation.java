@@ -66,67 +66,76 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 		}
 
 		for (ObjectName objName : objectNames) {
-			PluginData permutationPD = new PluginData(pd);
-			List<String> beanInstanceList = new ArrayList<String>();
-			StringBuilder beanInstance = new StringBuilder();
+            // Issue #16, possibly issue #6 - Attempt to get the MBeanInfo prior to adding the permutation to be collected.
+            // Based on Pull Request #17, but relocated to the 'initialization' code for a permutation.
+            // If we're unable to obtain the MBeanInfo, the permutation is not added.
+            try {
+                connection.getServerConnection().getMBeanInfo(objName); // If this doesn't work, we won't add permutations to collect the bean info.
 
-			for (String propertyName : context.getBeanInstanceFrom()) {
-				String propertyValue = objName.getKeyProperty(propertyName);
+                PluginData permutationPD = new PluginData(pd);
+                List<String> beanInstanceList = new ArrayList<String>();
+                StringBuilder beanInstance = new StringBuilder();
 
-				if (propertyValue == null) {
-					logger.severe("No such property [" + propertyName + "] in ObjectName [" + objName + "] for bean instance creation.");
-				} else {
-					beanInstanceList.add(propertyValue);
-				}
-			}
+                for (String propertyName : context.getBeanInstanceFrom()) {
+                    String propertyValue = objName.getKeyProperty(propertyName);
 
-			if (connection.getConnectionInstancePrefix() != null) {
-				beanInstance.append(connection.getConnectionInstancePrefix());
-			}
+                    if (propertyValue == null) {
+                        logger.severe("No such property [" + propertyName + "] in ObjectName [" + objName + "] for bean instance creation.");
+                    } else {
+                        beanInstanceList.add(propertyValue);
+                    }
+                }
 
-			if (context.getBeanInstancePrefix() != null) {
-				if (beanInstance.length() > 0) {
-					beanInstance.append("-");
-				}
-				beanInstance.append(context.getBeanInstancePrefix());
-			}
+                if (connection.getConnectionInstancePrefix() != null) {
+                    beanInstance.append(connection.getConnectionInstancePrefix());
+                }
 
-			for (int i = 0; i < beanInstanceList.size(); i++) {
-				if (i > 0) {
-					beanInstance.append("-");
-				}
-				beanInstance.append(beanInstanceList.get(i));
-			}
-			permutationPD.setPluginInstance(beanInstance.toString());
+                if (context.getBeanInstancePrefix() != null) {
+                    if (beanInstance.length() > 0) {
+                        beanInstance.append("-");
+                    }
+                    beanInstance.append(context.getBeanInstancePrefix());
+                }
 
-			ValueList vl = new ValueList(permutationPD);
-			vl.setType(context.getDataSet().getType());
+                for (int i = 0; i < beanInstanceList.size(); i++) {
+                    if (i > 0) {
+                        beanInstance.append("-");
+                    }
+                    beanInstance.append(beanInstanceList.get(i));
+                }
+                permutationPD.setPluginInstance(beanInstance.toString());
 
-			List<String> attributeInstanceList = new ArrayList<String>();
-			for (String propertyName : context.getValueInstanceFrom()) {
-				String propertyValue = objName.getKeyProperty(propertyName);
-				if (propertyValue == null) {
-					logger.severe("no such property [" + propertyName + "] in ObjectName [" + objName + "] for attribute instance creation.");
-				} else {
-					attributeInstanceList.add(propertyValue);
-				}
-			}
+                ValueList vl = new ValueList(permutationPD);
+                vl.setType(context.getDataSet().getType());
 
-			StringBuilder attributeInstance = new StringBuilder();
-			if (context.getValueInstancePrefix() != null) {
-				attributeInstance.append(context.getValueInstancePrefix());
-			}
+                List<String> attributeInstanceList = new ArrayList<String>();
+                for (String propertyName : context.getValueInstanceFrom()) {
+                    String propertyValue = objName.getKeyProperty(propertyName);
+                    if (propertyValue == null) {
+                        logger.severe("no such property [" + propertyName + "] in ObjectName [" + objName + "] for attribute instance creation.");
+                    } else {
+                        attributeInstanceList.add(propertyValue);
+                    }
+                }
 
-			for (int i = 0; i < attributeInstanceList.size(); i++) {
-				if (i > 0) {
-					attributeInstance.append("-");
-				}
-				attributeInstance.append(attributeInstanceList.get(i));
-			}
-			vl.setTypeInstance(attributeInstance.toString());
+                StringBuilder attributeInstance = new StringBuilder();
+                if (context.getValueInstancePrefix() != null) {
+                    attributeInstance.append(context.getValueInstancePrefix());
+                }
 
-			permutations.add(new AttributePermutation(objName, connection, context, permutationPD, vl));
-		}
+                for (int i = 0; i < attributeInstanceList.size(); i++) {
+                    if (i > 0) {
+                        attributeInstance.append("-");
+                    }
+                    attributeInstance.append(attributeInstanceList.get(i));
+                }
+                vl.setTypeInstance(attributeInstance.toString());
+
+                permutations.add(new AttributePermutation(objName, connection, context, permutationPD, vl));
+            } catch (Exception ex) {
+                logger.warning("Unable to obtain MBeanInfo for " + objName + " @ " + connection.getRawUrl() );
+            }
+        }
 
 		return permutations;
 	}
