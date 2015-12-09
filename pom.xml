@@ -4,15 +4,15 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>org.collectd</groupId>
-    <artifactId>fast-jmx</artifactId>
-    <version>1.1-SNAPSHOT</version>
+    <groupId>com.e-gineering</groupId>
+    <artifactId>collectd-fast-jmx</artifactId>
+    <version>1.0-SNAPSHOT</version>
 
     <packaging>jar</packaging>
-    <name>org.collectd.FastJMX</name>
+    <name>collectd FastJMX</name>
 
     <description>A collectd plugin for lower-latency JMX operations.</description>
-    <url>http://github.com/bvarner/collectd-fast-jmx</url>
+    <url>http://github.com/egineering-llc/collectd-fast-jmx</url>
     
     <properties>
         <maven.compiler.source>1.5</maven.compiler.source>
@@ -37,24 +37,6 @@
 
     <build>
         <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <version>2.3.2</version>
-                <configuration>
-                    <encoding>${project.build.sourceEncoding}</encoding>                   	
-                   	<source>${maven.compiler.source}</source>
-                   	<target>${maven.compiler.target}</target>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-resources-plugin</artifactId>
-                <version>2.4.3</version>
-                <configuration>
-                    <encoding>${project.build.sourceEncoding}</encoding>                    
-                </configuration>
-            </plugin>
 			<plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
