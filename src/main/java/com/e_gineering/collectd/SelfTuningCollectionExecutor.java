@@ -1,4 +1,4 @@
-package org.collectd;
+package com.e_gineering.collectd;
 
 import org.apache.commons.math3.analysis.MultivariateMatrixFunction;
 import org.apache.commons.math3.analysis.MultivariateVectorFunction;
@@ -21,7 +21,6 @@ import org.collectd.api.Collectd;
 import org.collectd.api.PluginData;
 import org.collectd.api.ValueList;
 
-import javax.management.InstanceNotFoundException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;

@@ -1,4 +1,4 @@
-package org.collectd;
+package com.e_gineering.collectd;
 
 import org.collectd.api.DataSource;
 import org.collectd.api.PluginData;
@@ -24,7 +24,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Defines an actual permutation of an org.collectd.Attribute to be read from a org.collectd.Connection.
+ * Defines an actual permutation of an Attribute to be read from a Connection.
  */
 public class AttributePermutation implements Callable<AttributePermutation>, Comparable<AttributePermutation> {
 	private static Logger logger = Logger.getLogger(AttributePermutation.class.getName());
@@ -189,7 +189,7 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 	}
 
 	/**
-	 * Reads the attribute from the JMX org.collectd.Connection and submits it back to Collectd.
+	 * Reads the attribute from the JMX Connection and submits it back to Collectd.
 	 *
 	 * @return
 	 * @throws Exception

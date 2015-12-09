@@ -4,22 +4,61 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>org.collectd</groupId>
-    <artifactId>fast-jmx</artifactId>
-    <version>1.1-SNAPSHOT</version>
+    <prerequisites>
+        <maven>3.0.1</maven>
+    </prerequisites>
 
+    <groupId>com.e-gineering</groupId>
+    <artifactId>collectd-fast-jmx</artifactId>
+    <version>1.0.0.0-SNAPSHOT</version>
+
+    <name>collectd FastJMX</name>
     <packaging>jar</packaging>
-    <name>org.collectd.FastJMX</name>
-
     <description>A collectd plugin for lower-latency JMX operations.</description>
-    <url>http://github.com/bvarner/collectd-fast-jmx</url>
-    
+    <url>http://github.com/egineering-llc/collectd-fast-jmx</url>
+
+    <organization>
+        <name>E-Gineering, LLC.</name>
+        <url>http://www.e-gineering.com</url>
+    </organization>
+
+    <issueManagement>
+        <url>https://github.com/egineering-llc/collectd-fast-jmx/issues</url>
+        <system>GitHub Issues</system>
+    </issueManagement>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <scm>
+        <url>https://github.com/egineering-llc/collectd-fast-jmx</url>
+        <connection>scm:git:git://github.com/egineering-llc/collectd-fast-jmx.git</connection>
+        <developerConnection>scm:git:git@github.com:egineering-llc/collectd-fast-jmx.git</developerConnection>
+    </scm>
+
+
     <properties>
         <maven.compiler.source>1.5</maven.compiler.source>
         <maven.compiler.target>1.5</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    </properties> 
-    
+    </properties>
+
+    <distributionManagement>
+        <snapshotRepository>
+            <id>ossrh</id>
+            <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+        </snapshotRepository>
+        <repository>
+            <id>ossrh</id>
+            <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+        </repository>
+    </distributionManagement>
+
     <dependencies>
     	<dependency>
     		<groupId>org.collectd</groupId>
@@ -39,21 +78,16 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <version>2.3.2</version>
-                <configuration>
-                    <encoding>${project.build.sourceEncoding}</encoding>                   	
-                   	<source>${maven.compiler.source}</source>
-                   	<target>${maven.compiler.target}</target>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-resources-plugin</artifactId>
-                <version>2.4.3</version>
-                <configuration>
-                    <encoding>${project.build.sourceEncoding}</encoding>                    
-                </configuration>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>2.4</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
 			<plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -80,4 +114,42 @@
             </plugin>            
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>eg.oss</id>
+            <activation>
+                <activeByDefault>false</activeByDefault>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>1.5</version>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>sign</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.sonatype.plugins</groupId>
+                        <artifactId>nexus-staging-maven-plugin</artifactId>
+                        <version>1.6.3</version>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <serverId>ossrh</serverId>
+                            <nexusUrl>https://oss.sonatype.org/</nexusUrl>
+                            <autoReleaseAfterClose>false</autoReleaseAfterClose>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
