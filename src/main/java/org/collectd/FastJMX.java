@@ -417,12 +417,10 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 		ArrayList<AttributePermutation> toRemove = new ArrayList<AttributePermutation>();
 		synchronized (collectablePermutations) {
 			for (AttributePermutation permutation : collectablePermutations) {
-
 				if (permutation.getConnection().equals(connection)) {
 					toRemove.add(permutation);
 				}
 			}
-			logger.finest("Removing " + toRemove.size() + " permutations from the existing collection of " + collectablePermutations.size() + " permutations of attributes to collect.");
 			collectablePermutations.removeAll(toRemove);
 		}
 	}
@@ -460,7 +458,6 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 					toRemove.add(permutation);
 				}
 			}
-			logger.finest("Removing " + toRemove.size() + " permutations from the existing collection of " + collectablePermutations.size() + " permutations of attributes to collect.");
 			collectablePermutations.removeAll(toRemove);
 		}
 	}
