@@ -391,7 +391,12 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 					if (logger.isLoggable(Level.FINE)) {
 						logger.fine("Found " + instances.size() + " instances of " + attrib.getObjectName() + " @ " + connection.getRawUrl());
 					}
-					collectablePermutations.addAll(AttributePermutation.create(instances.toArray(new ObjectName[instances.size()]), connection, attrib));
+
+					// Do the slowish part outside of the synchronized block.
+					List<AttributePermutation> permutations = AttributePermutation.create(instances.toArray(new ObjectName[instances.size()]), connection, attrib);
+					synchronized (collectablePermutations) {
+						collectablePermutations.addAll(permutations);
+					}
 				} catch (IOException ioe) {
 					logger.severe("Failed to find " + attrib.getObjectName() + " @ " + connection.getRawUrl() + " Exception message: " + ioe.getMessage());
 				}
@@ -431,7 +436,10 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 		for (Attribute attribute : attributes) {
 			// If the host is supposed to collect this attribute, and the objectName matches the attribute, add the permutation.
 			if (connection.getBeanAliases().contains(attribute.getBeanAlias()) && attribute.getObjectName().apply(objectName)) {
-				collectablePermutations.addAll(AttributePermutation.create(new ObjectName[]{objectName}, connection, attribute));
+				List<AttributePermutation> permutations = AttributePermutation.create(new ObjectName[]{objectName}, connection, attribute);
+				synchronized (collectablePermutations) {
+					collectablePermutations.addAll(permutations);
+				}
 			}
 		}
 	}
