@@ -1,6 +1,6 @@
 # Important Note : 1.0 has a new package...
 
-In the process of transferring this project to E-Gineering, LLC (thanks, guys!) we've moved the maven coordinates a bit in order to start pushing
+In the process of transferring this project to E-gineering, LLC (thanks, guys!) we've moved the maven coordinates a bit in order to start pushing
 artifacts to maven central.
 
 Note that all references to `org.collectd.FastJMX` have been changed to `com.e_gineering.collectd.FastJMX`, and the file name for jars has changed as 
