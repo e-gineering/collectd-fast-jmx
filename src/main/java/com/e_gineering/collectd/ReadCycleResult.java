@@ -1,4 +1,4 @@
-package com.e_gineering;
+package com.e_gineering.collectd;
 
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;

@@ -1,4 +1,4 @@
-package com.e_gineering;
+package com.e_gineering.collectd;
 
 import javax.management.InstanceNotFoundException;
 import javax.management.ListenerNotFoundException;

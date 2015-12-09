@@ -1,4 +1,4 @@
-package com.e_gineering;
+package com.e_gineering.collectd;
 
 import org.collectd.api.DataSource;
 import org.collectd.api.PluginData;

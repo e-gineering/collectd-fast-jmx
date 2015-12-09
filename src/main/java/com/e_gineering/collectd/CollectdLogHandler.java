@@ -1,4 +1,4 @@
-package com.e_gineering.logging;
+package com.e_gineering.collectd.logging;
 
 import org.collectd.api.Collectd;
 

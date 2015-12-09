@@ -1,4 +1,4 @@
-package com.e_gineering;
+package com.e_gineering.collectd;
 
 import javax.management.ListenerNotFoundException;
 import javax.management.MBeanServerConnection;

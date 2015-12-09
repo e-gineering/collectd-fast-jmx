@@ -1,4 +1,4 @@
-package com.e_gineering;
+package com.e_gineering.collectd;
 
 import org.apache.commons.math3.analysis.MultivariateMatrixFunction;
 import org.apache.commons.math3.analysis.MultivariateVectorFunction;

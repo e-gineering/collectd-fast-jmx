@@ -1,6 +1,6 @@
-package com.e_gineering;
+package com.e_gineering.collectd;
 
-import com.e_gineering.logging.CollectdLogHandler;
+import com.e_gineering.collectd.logging.CollectdLogHandler;
 import org.collectd.api.Collectd;
 import org.collectd.api.CollectdConfigInterface;
 import org.collectd.api.CollectdInitInterface;
