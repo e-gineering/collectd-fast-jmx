@@ -6,7 +6,16 @@ artifacts to maven central.
 Note that all references to `org.collectd.FastJMX` have been changed to `com.e_gineering.collectd.FastJMX`, and the file name for jars has changed as 
 well.
 
-On the bright side, you can now pull pre-built artifacts of FastJMX out of the interwebs!
+On the bright side, you can now pull pre-built artifacts of FastJMX out of the interwebs, from the [Maven central repository](https://oss.sonatype.org/content/repositories/releases/com/e-gineering/collectd-fast-jmx/)!
+
+Or, for folks who want to use this some other way, here's the Maven coordinates:
+```
+<dependency>
+	<groupId>com.e-gineering</groupId>
+	<artifactId>collectd-fast-jmx</artifactId>
+	<version>1.0.0</version>
+</dependency>
+```
 
 ## FastJMX - Low-latency JMX collectd plugin
 
