@@ -17,7 +17,8 @@ Or, for folks who want to use this some other way, here's the Maven coordinates:
 </dependency>
 ```
 
-## FastJMX - Low-latency JMX collectd plugin
+## FastJMX - Low-latency JMX collectd plugin [![Build Status](https://travis-ci.org/egineering-llc/collectd-fast-jmx.svg?branch=master)](https://travis-ci.org/egineering-llc/collectd-fast-jmx)
+
 
 The default GenericJMX plugin from collectd is great for basic collection of small numbers of metrics, but if you need to collect many metrics from one 
 or more hosts, the latency to read the metrics can quickly exceed your interval time, and that's no fun. If you want to remotely collect metrics from
