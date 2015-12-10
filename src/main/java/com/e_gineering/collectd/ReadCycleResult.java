@@ -52,8 +52,8 @@ public class ReadCycleResult {
 	/**
 	 * Comparing this cycle to the other one, should we recalculate for optimal pool size?
 	 *
-	 * @param previousCycle
-	 * @return
+	 * @param previousCycle The previous cycle to baseline against.
+	 * @return true if a recalculation should occur.
 	 */
 	public boolean triggerRecalculate(ReadCycleResult previousCycle) {
 		if (previousCycle != null) {
@@ -79,6 +79,8 @@ public class ReadCycleResult {
 	/**
 	 * Returns a Double between 0 and 2.0 to serve as the jacobian weight for this ReadCycleResult.
 	 * (total - cancellations / total) * ((interval - duration) / interval)
+	 *
+	 * @return a double value to serve as jacobian weights for this ReadCycleResult.
 	 */
 	public double getWeight() {
 		return (((double) total - cancelled) / total) + (((double) interval - duration) / interval);

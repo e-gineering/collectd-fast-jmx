@@ -124,8 +124,8 @@ public class Connection implements NotificationListener {
 	/**
 	 * Cleans up the serverConnection if we're closed or fail.
 	 *
-	 * @param notification
-	 * @param handback
+	 * @param notification The notification to handle
+	 * @param handback The handback object registered with the notification listener.
 	 */
 	public void handleNotification(final Notification notification, final Object handback) {
 		logger.fine("Connection received Notification: " + notification);

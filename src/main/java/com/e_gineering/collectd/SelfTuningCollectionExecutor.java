@@ -41,10 +41,10 @@ import java.util.logging.Logger;
 /**
  * A class that implements a ring buffer histogram of ReadCycleResults, encapsulates a ThreadPoolExecutor, and
  * uses least squares estimation to divine an optimum pool size.
- * <p/>
+ * <p>
  * The basic premise is that given the command to invoke all AttributePermutations, the pool should be tuned so that the
  * next invocation of invokeAll() has a better chance of success prior to time-out than the current invocation had.
- * <p/>
+ * <p>
  * The actual goal, of course, is to find the optimal number of threads to execute the given tasks with.
  */
 public class SelfTuningCollectionExecutor {
@@ -200,9 +200,9 @@ public class SelfTuningCollectionExecutor {
 	/**
 	 * Invokes the AttributePermutations with the thread pool executor and returns the results.
 	 *
-	 * @param tasks
-	 * @return
-	 * @throws InterruptedException
+	 * @param tasks The AttributePermutations to collect.
+	 * @return A list of java Futures for each of the tasks.
+	 * @throws InterruptedException If the thread is interrupted while waiting for the tasks to execute.
 	 */
 	public List<Future<AttributePermutation>> invokeAll(List<AttributePermutation> tasks) throws InterruptedException {
 		long start = System.nanoTime();
@@ -334,7 +334,7 @@ public class SelfTuningCollectionExecutor {
 
 	/**
 	 * Easily the most complex part of this class --
-	 * <p/>
+	 * <p>
 	 * Using the ReadCycleResult objects in the ring buffer, organize the data into a hash map where the key is the
 	 * pool size, and the value is the duration it took to complete.
 	 *
@@ -460,7 +460,7 @@ public class SelfTuningCollectionExecutor {
 
 	/**
 	 * Implementation of a 2nd degree quadratic univariate function, ax^2 + bx + c
-	 * <p/>
+	 * <p>
 	 * Using the output of the QuadraticProblem (least squares solving) this can be used with a further
 	 * optimizer to find the min value of the function. This min dependent variable value should coincide with the
 	 * optimum dependent variable (# of threads in our case) to execute the workload in a timely manner.

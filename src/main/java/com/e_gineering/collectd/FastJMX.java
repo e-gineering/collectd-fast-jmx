@@ -68,7 +68,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 
 	/**
 	 * Parses a config structure like the one below into the parts necessary to collect the information.
-	 * <p/>
+	 * <p>
 	 * Note the following changes from the GenericJMX Configuration:
 	 * <ul>
 	 * <li>MaxThreads: Changes the maximum number of threads to allow. Default is 512.</li>
@@ -84,21 +84,19 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 * <li>"forceLoggingTo" will force all logging output to this Collectd log level.</li>
 	 * <li>"logLevel" Changes the internal java logging level (default is INFO). Can be used in conjunction with 'forceLoggingTo' to have FastJMX log more verbosely without affecting other collectd plugins.</li>
 	 * </ul>
-	 * <p/>
 	 * <pre>
-	 * {@Code
-	 * <Plugin "FastJMX">
+	 * &lt;Plugin "FastJMX"&gt;
 	 *   MaxThreads 384
 	 *   CollectInternal true
 	 *   ForceLoggingTo INFO
 	 *   loglevel FINEST
 	 *
-	 *   <MBean/MXBean/Bean "alias">
+	 *   &lt;MBean/MXBean/Bean "alias"&gt;
 	 *     ObjectName "java.lang:type=MemoryPool,*"
 	 *     InstancePrefix "memory_pool-"
 	 *     InstanceFrom "name"
 	 *
-	 *     <Value "Usage">
+	 *     &lt;Value "Usage"&gt;
 	 *       Type "gauge"
 	 *       #InstancePrefix "value-"
 	 *       #InstanceFrom "name"
@@ -107,19 +105,18 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 *       #Attribute min
 	 *       #Attribute max
 	 *       #Attribute full
-	 *     </Value>
-	 *   </MBean/Bean>
+	 *     &lt;/Value&gt;
+	 *   &lt;/MBean/Bean&gt;
 	 *
-	 *   <Connection "host">
+	 *   &lt;Connection "host"&gt;
 	 *       ServiceURL "service:jmx:rmi:///jndi/rmi://localhost:8675/jmxrmi"
 	 *       Collect "alias"
 	 *       User|Username "admin"
 	 *       Password "foobar"
 	 *       InstancePrefix "foo-"
 	 *       ttl 300
-	 *   </Connection>
-	 * </Plugin>
-	 * }
+	 *   &lt;/Connection&gt;
+	 * &lt;/Plugin&gt;
 	 * </pre>
 	 */
 	public int config(final OConfigItem ci) {
@@ -329,7 +326,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 * Attempts to read all identified permutations of beans for each connection before the next (interval - 500ms).
 	 * Any attributes not read by that time will be cancelled and no metrics will be gathered for those points.
 	 *
-	 * @return
+	 * @return 0. Always 0.
 	 */
 	public int read() {
 		if (logger.isLoggable(Level.FINE)) {
@@ -465,7 +462,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	/**
 	 * Handles JMXConnectionNotifications from Connection objects.
 	 *
-	 * @param notification
+	 * @param notification The notification event
 	 * @param handback     The Connection
 	 */
 	public void handleNotification(final Notification notification, final Object handback) {
