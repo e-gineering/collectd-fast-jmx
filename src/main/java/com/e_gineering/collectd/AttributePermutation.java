@@ -1,4 +1,4 @@
-package org.collectd;
+package com.e_gineering.collectd;
 
 import org.collectd.api.DataSource;
 import org.collectd.api.PluginData;
@@ -24,7 +24,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Defines an actual permutation of an org.collectd.Attribute to be read from a org.collectd.Connection.
+ * Defines an actual permutation of an Attribute to be read from a Connection.
  */
 public class AttributePermutation implements Callable<AttributePermutation>, Comparable<AttributePermutation> {
 	private static Logger logger = Logger.getLogger(AttributePermutation.class.getName());
@@ -154,13 +154,13 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 
 	/**
 	 * Implements Comparable, allowing for a natural sort ordering of previous <em>successful</em> execution duration.
-	 * <p/>
+	 * <p>
 	 * Executions previously cancelled or failed will be treated as 'not run', and have a duration of '0', making them
 	 * 'less than' by comparison. If both objects being compared have a run duration of 0, they are sorted according to
 	 * the computed hashCode() values.
 	 *
-	 * @param o
-	 * @return
+	 * @param o The other AttributePermutation to compare.
+	 * @return Lexical comparison result.
 	 */
 	public int compareTo(final AttributePermutation o) {
 
@@ -189,10 +189,7 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 	}
 
 	/**
-	 * Reads the attribute from the JMX org.collectd.Connection and submits it back to Collectd.
-	 *
-	 * @return
-	 * @throws Exception
+	 * Reads the attribute from the JMX Connection and submits it back to Collectd.
 	 */
 	public AttributePermutation call() throws Exception {
 		long start = System.nanoTime();

@@ -1,4 +1,4 @@
-package org.collectd;
+package com.e_gineering.collectd;
 
 import javax.management.InstanceNotFoundException;
 import javax.management.ListenerNotFoundException;
@@ -124,8 +124,8 @@ public class Connection implements NotificationListener {
 	/**
 	 * Cleans up the serverConnection if we're closed or fail.
 	 *
-	 * @param notification
-	 * @param handback
+	 * @param notification The notification to handle
+	 * @param handback The handback object registered with the notification listener.
 	 */
 	public void handleNotification(final Notification notification, final Object handback) {
 		logger.fine("Connection received Notification: " + notification);
@@ -182,17 +182,16 @@ public class Connection implements NotificationListener {
 			return true;
 		} else if (obj instanceof Connection) {
 			Connection that = (Connection) obj;
-			return that.rawUrl.equals(this.rawUrl) &&
-					       this.username != null ? this.username.equals(that.username) : this.username == that.username &&
-							                                                                     this.password != null ? this.password.equals(that.password) : this.password == that.password &&
-									                                                                                                                                   this.hostname != null ? this.hostname.equals(that.hostname) : this.hostname == that.hostname &&
-											                                                                                                                                                                                                 this.connectionInstancePrefix != null ? this.connectionInstancePrefix.equals(that.connectionInstancePrefix) : this.connectionInstancePrefix == this.connectionInstancePrefix;
+
+			return this.rawUrl.equals(that.rawUrl) &&
+					this.hostname.equals(that.hostname) &&
+					(this.username == null ? that.username == null : this.username.equals(that.username)) &&
+					(this.password == null ? that.password == null : this.password.equals(that.password)) &&
+					(this.connectionInstancePrefix == null ? that.connectionInstancePrefix == null : this.connectionInstancePrefix.equals(that.connectionInstancePrefix)) &&
+					this.ttl == that.ttl &&
+					this.forceSynchronous == that.forceSynchronous;
 		}
 		return false;
-	}
-
-	void scheduleReconnect() {
-		connectTimer.schedule(new ReconnectTask(), 0);
 	}
 
 	private class ReconnectTask extends TimerTask {

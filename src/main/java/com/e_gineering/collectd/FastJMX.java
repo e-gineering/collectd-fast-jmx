@@ -1,5 +1,6 @@
-package org.collectd;
+package com.e_gineering.collectd;
 
+import com.e_gineering.collectd.logging.CollectdLogHandler;
 import org.collectd.api.Collectd;
 import org.collectd.api.CollectdConfigInterface;
 import org.collectd.api.CollectdInitInterface;
@@ -8,7 +9,6 @@ import org.collectd.api.CollectdShutdownInterface;
 import org.collectd.api.DataSet;
 import org.collectd.api.OConfigItem;
 import org.collectd.api.OConfigValue;
-import org.collectd.logging.CollectdLogHandler;
 
 import javax.management.MBeanServerNotification;
 import javax.management.MalformedObjectNameException;
@@ -68,15 +68,15 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 
 	/**
 	 * Parses a config structure like the one below into the parts necessary to collect the information.
-	 * <p/>
+	 * <p>
 	 * Note the following changes from the GenericJMX Configuration:
 	 * <ul>
 	 * <li>MaxThreads: Changes the maximum number of threads to allow. Default is 512.</li>
 	 * <li>CollectInternal: Reports internal metrics from FastJMX back to Collectd.</li>
 	 * <li>"MBean", "MXBean", and "Bean" are now interchangeable. This plugin also works with MXBeans.</li>
-	 * <li>The Hostname is auto-detected from the ServiceURL unless specified as the "string" portion of the org.collectd.Connection
+	 * <li>The Hostname is auto-detected from the ServiceURL unless specified as the "string" portion of the Connection
 	 * definition. The "host" property is still supported for backwards-compatibility.</li>
-	 * <li>The Value block's string value is added to the "org.collectd.Attribute" list. The "org.collectd.Attribute" property is still supported for
+	 * <li>The Value block's string value is added to the "Attribute" list. The "Attribute" property is still supported for
 	 * backards-compatibility.</li>
 	 * <li>"table" and "composite" are aliases for each other.</li>
 	 * <li>"user" and "username" are aliases for each other.</li>
@@ -84,42 +84,39 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 * <li>"forceLoggingTo" will force all logging output to this Collectd log level.</li>
 	 * <li>"logLevel" Changes the internal java logging level (default is INFO). Can be used in conjunction with 'forceLoggingTo' to have FastJMX log more verbosely without affecting other collectd plugins.</li>
 	 * </ul>
-	 * <p/>
 	 * <pre>
-	 * {@Code
-	 * <Plugin "FastJMX">
+	 * &lt;Plugin "FastJMX"&gt;
 	 *   MaxThreads 384
 	 *   CollectInternal true
 	 *   ForceLoggingTo INFO
 	 *   loglevel FINEST
 	 *
-	 *   <MBean/MXBean/Bean "alias">
+	 *   &lt;MBean/MXBean/Bean "alias"&gt;
 	 *     ObjectName "java.lang:type=MemoryPool,*"
 	 *     InstancePrefix "memory_pool-"
 	 *     InstanceFrom "name"
 	 *
-	 *     <Value "Usage">
+	 *     &lt;Value "Usage"&gt;
 	 *       Type "gauge"
 	 *       #InstancePrefix "value-"
 	 *       #InstanceFrom "name"
 	 *       Table|Composite true
-	 *       #org.collectd.Attribute "Usage"
-	 *       #org.collectd.Attribute min
-	 *       #org.collectd.Attribute max
-	 *       #org.collectd.Attribute full
-	 *     </Value>
-	 *   </MBean/Bean>
+	 *       #Attribute "Usage"
+	 *       #Attribute min
+	 *       #Attribute max
+	 *       #Attribute full
+	 *     &lt;/Value&gt;
+	 *   &lt;/MBean/Bean&gt;
 	 *
-	 *   <Connection "host">
+	 *   &lt;Connection "host"&gt;
 	 *       ServiceURL "service:jmx:rmi:///jndi/rmi://localhost:8675/jmxrmi"
 	 *       Collect "alias"
 	 *       User|Username "admin"
 	 *       Password "foobar"
 	 *       InstancePrefix "foo-"
 	 *       ttl 300
-	 *   </Connection>
-	 * </Plugin>
-	 * }
+	 *   &lt;/Connection&gt;
+	 * &lt;/Plugin&gt;
 	 * </pre>
 	 */
 	public int config(final OConfigItem ci) {
@@ -290,11 +287,11 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 							forceSynchronous = true;
 						}
 
-						// Now create the org.collectd.Connection and put it into our hashmap.
+						// Now create the Connection and put it into our hashmap.
 						Connection c = new Connection(this, rawUrl, hostName, serviceURL, username, password, connectionInstancePrefix, beanAliases, ttl, forceSynchronous);
 						connections.put(c.getUUID(), c);
 					} else {
-						logger.severe("Excluding org.collectd.Connection for : " + serviceURL.toString() + ". No beans to collect.");
+						logger.severe("Excluding Connection for : " + serviceURL.toString() + ". No beans to collect.");
 					}
 				} else {
 					logger.warning("Excluding host definition no ServiceURL defined.");
@@ -329,7 +326,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	 * Attempts to read all identified permutations of beans for each connection before the next (interval - 500ms).
 	 * Any attributes not read by that time will be cancelled and no metrics will be gathered for those points.
 	 *
-	 * @return
+	 * @return 0. Always 0.
 	 */
 	public int read() {
 		if (logger.isLoggable(Level.FINE)) {
@@ -378,7 +375,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 		if (logger.isLoggable(Level.FINE)) {
 			logger.fine("Creating AttributePermutations for " + connection.getRawUrl());
 		}
-		// Create the org.collectd.AttributePermutation objects appropriate for this org.collectd.Connection.
+		// Create the AttributePermutation objects appropriate for this Connection.
 		for (Attribute attrib : attributes) {
 			// If the host is supposed to collect this attribute, look for matching objectNames on the host.
 			if (connection.getBeanAliases().contains(attrib.getBeanAlias())) {
@@ -413,7 +410,7 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 		if (logger.isLoggable(Level.FINE)) {
 			logger.fine("Removing AttributePermutations for " + connection.getRawUrl());
 		}
-		// Remove the org.collectd.AttributePermutation objects appropriate for this org.collectd.Connection.
+		// Remove the AttributePermutation objects appropriate for this Connection.
 		ArrayList<AttributePermutation> toRemove = new ArrayList<AttributePermutation>();
 		synchronized (collectablePermutations) {
 			for (AttributePermutation permutation : collectablePermutations) {
@@ -463,10 +460,10 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 	}
 
 	/**
-	 * Handles JMXConnectionNotifications from org.collectd.Connection objects.
+	 * Handles JMXConnectionNotifications from Connection objects.
 	 *
-	 * @param notification
-	 * @param handback     The org.collectd.Connection
+	 * @param notification The notification event
+	 * @param handback     The Connection
 	 */
 	public void handleNotification(final Notification notification, final Object handback) {
 		if (notification instanceof JMXConnectionNotification) {

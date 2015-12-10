@@ -1,4 +1,24 @@
-## FastJMX - Low-latency JMX collectd plugin
+# Important Note : 1.0 has a new package...
+
+In the process of transferring this project to E-gineering, LLC (thanks, guys!) we've moved the maven coordinates a bit in order to start pushing
+artifacts to maven central.
+
+Note that all references to `org.collectd.FastJMX` have been changed to `com.e_gineering.collectd.FastJMX`, and the file name for jars has changed as 
+well.
+
+On the bright side, you can now pull pre-built artifacts of FastJMX out of the interwebs, from the [Maven central repository](https://oss.sonatype.org/content/repositories/releases/com/e-gineering/collectd-fast-jmx/)!
+
+Or, for folks who want to use this some other way, here's the Maven coordinates:
+```
+<dependency>
+	<groupId>com.e-gineering</groupId>
+	<artifactId>collectd-fast-jmx</artifactId>
+	<version>1.0.0</version>
+</dependency>
+```
+
+## FastJMX - Low-latency JMX collectd plugin [![Build Status](https://travis-ci.org/egineering-llc/collectd-fast-jmx.svg?branch=master)](https://travis-ci.org/egineering-llc/collectd-fast-jmx)
+
 
 The default GenericJMX plugin from collectd is great for basic collection of small numbers of metrics, but if you need to collect many metrics from one 
 or more hosts, the latency to read the metrics can quickly exceed your interval time, and that's no fun. If you want to remotely collect metrics from
@@ -29,7 +49,7 @@ If you really want to know what FastJMX is doing, add `CollectInternal true` to 
 ### Migrate from GenericJMX by...
 
 * Add the path to the fast-jmx jar in JVMARG
-* Include `LoadPlugin "org.collectd.FastJMX` in the `<Plugin "java">` block.
+* Include `LoadPlugin "com.e_gineering.collectd.FastJMX` in the `<Plugin "java">` block.
 
 ### Additional FastJMX Options:
 
@@ -47,9 +67,9 @@ If you really want to know what FastJMX is doing, add `CollectInternal true` to 
 ```
 LoadPlugin java
 <Plugin "java">
-  JVMARG "-Djava.class.path=/usr/share/collectd/java/collectd-api.jar:/path/to/fast-jmx-1.0-SNAPSHOT.jar"
+  JVMARG "-Djava.class.path=/path/to/collectd-api.jar:/path/to/collectd-fast-jmx.jar"
   
-  LoadPlugin "org.collectd.FastJMX"
+  LoadPlugin "com.e_gineering.collectd.FastJMX"
 
   <Plugin "FastJMX">
 
@@ -198,8 +218,8 @@ As part of getting this to work, some 'workarounds' are included in the FastJMX 
 Here's an example JVMArg that works with jboss-eap-6.1
 ```
 <Plugin java>
-	JVMArg "-Djava.class.path=/usr/share/collectd/java/collectd-api.jar:/usr/lib/jvm/java-7-oracle/lib/jconsole.jar:/usr/lib/jvm/java-7-oracle/lib/tools.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/remoting-jmx/main/remoting-jmx-1.1.0.Final-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/remoting3/main/jboss-remoting-3.2.16.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/logging/main/jboss-logging-3.1.2.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/xnio/main/xnio-api-3.0.7.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/xnio/nio/main/xnio-nio-3.0.7.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/sasl/main/jboss-sasl-1.0.3.Final-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/marshalling/main/jboss-marshalling-1.3.18.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/marshalling/river/main/jboss-marshalling-river-1.3.18.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/as/cli/main/jboss-as-cli-7.2.1.Final-redhat-10.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/staxmapper/main/staxmapper-1.1.0.Final-redhat-2.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/as/protocol/main/jboss-as-protocol-7.2.1.Final-redhat-10.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/dmr/main/jboss-dmr-1.1.6.Final-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/as/controller-client/main/jboss-as-controller-client-7.2.1.Final-redhat-10.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/threads/main/jboss-threads-2.1.0.Final-redhat-1.jar:/usr/share/collectd/java/fast-jmx-1.1-SNAPSHOT.jar"
-	LoadPlugin "org.collectd.FastJMX"
+	JVMArg "-Djava.class.path=/usr/share/collectd/java/collectd-api.jar:/usr/lib/jvm/java-7-oracle/lib/jconsole.jar:/usr/lib/jvm/java-7-oracle/lib/tools.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/remoting-jmx/main/remoting-jmx-1.1.0.Final-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/remoting3/main/jboss-remoting-3.2.16.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/logging/main/jboss-logging-3.1.2.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/xnio/main/xnio-api-3.0.7.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/xnio/nio/main/xnio-nio-3.0.7.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/sasl/main/jboss-sasl-1.0.3.Final-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/marshalling/main/jboss-marshalling-1.3.18.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/marshalling/river/main/jboss-marshalling-river-1.3.18.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/as/cli/main/jboss-as-cli-7.2.1.Final-redhat-10.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/staxmapper/main/staxmapper-1.1.0.Final-redhat-2.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/as/protocol/main/jboss-as-protocol-7.2.1.Final-redhat-10.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/dmr/main/jboss-dmr-1.1.6.Final-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/as/controller-client/main/jboss-as-controller-client-7.2.1.Final-redhat-10.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/threads/main/jboss-threads-2.1.0.Final-redhat-1.jar:/usr/share/collectd/java/collectd-fast-jmx-1.0-SNAPSHOT.jar"
+	LoadPlugin "com.e_gineering.collectd.FastJMX"
 	
 	...
 	

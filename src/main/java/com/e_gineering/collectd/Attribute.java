@@ -1,4 +1,4 @@
-package org.collectd;
+package com.e_gineering.collectd;
 
 import org.collectd.api.DataSet;
 
