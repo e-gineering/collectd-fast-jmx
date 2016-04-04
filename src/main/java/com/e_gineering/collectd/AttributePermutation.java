@@ -330,11 +330,14 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 				}
 			} else if (!values.contains(null)) {
 				ValueList vl = new ValueList(callVal);
-				vl.setValues(genericListToNumber(values));
-				if (logger.isLoggable(Level.FINEST)) {
-					logger.finest("dispatch " + vl);
+				List<Number> numberList = genericListToNumber(values);
+				if (!numberList.contains(null)) {
+					vl.setValues(genericListToNumber(values));
+					if (logger.isLoggable(Level.FINEST)) {
+						logger.finest("dispatch " + vl);
+					}
+					dispatch.add(vl);
 				}
-				dispatch.add(vl);
 			}
 			interruptedOrFailed = false;
 		} catch (IOException ioe) {
