@@ -36,7 +36,7 @@ FastJMX does things differently than the GenericJMX plugin, but it does it in a 
 * Each `read()` cycle is timeslot protected (synchronized to the interval configured in collectd) so that old values and current values are *never* intermixed.
 * Each `<Value>` can define a custom `PluginName`, allowing segementation of reported metrics into different plugin buckets rather than everything being reported as "GenericJMX" or "FastJMX".
 * The port can be appended to the hostname using `IncludePortInHostname`. This is very helpful in separating data from multiple JVM instances on the same host without needing to specify an `InstancePrefix` on the `<Connection>`.
-* Hostnames are automatically detected from the serviceURL. If the serviceURL is a complex type, like `service:jmx:rmi:///jndi/rmi://hostname:port/jmxrmi`, FastJMX will still properly parse the hostname and port. The `Hostname` property (part of the standard GenericJMX configuration) value is still respected if present.
+* Hostnames are automatically detected from the serviceURL. If the serviceURL is a complex type, like `service:jmx:rmi:///jndi/rmi://hostname:port/jmxrmi`, FastJMX will still properly parse the hostname and port. If you still want to 'override' the hostname (to be different than the service URL), you can include the hostname as a string in your `<Connection "ahost.name">` definition.
 * FastJMX doesn't require connections be defined after the beans. `<MBean>` (or `<MXBean>`, or just `<Bean>`) and `<Connection>` blocks can come in _any_ order.
 
 ### So how much faster is it?
