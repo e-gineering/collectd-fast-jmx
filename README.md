@@ -167,6 +167,7 @@ LoadPlugin java
     </Connection>
 
   </Plugin>
+</Plugin>
   ```
 
 ## Internal Metrics
