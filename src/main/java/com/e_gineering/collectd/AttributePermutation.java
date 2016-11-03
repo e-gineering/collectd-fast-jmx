@@ -32,7 +32,6 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 	private ObjectName objectName;
 	private Connection connection;
 	private Attribute attribute;
-	private PluginData pluginData;
 	private ValueList valueList;
 
 	private long lastRunDuration = 0l;
@@ -40,14 +39,22 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 	private int consecutiveNotFounds = 0;
 	private List<ValueList> dispatch = new ArrayList<ValueList>(1);
 
-	private AttributePermutation(final ObjectName objectName, final Connection connection, final Attribute attribute, final PluginData pd, final ValueList vl) {
+	private AttributePermutation(final ObjectName objectName, final Connection connection, final Attribute attribute, final ValueList vl) {
 		this.objectName = objectName;
 		this.connection = connection;
 		this.attribute = attribute;
-		this.pluginData = pd;
 		this.valueList = vl;
 	}
 
+	/**
+	 * Method invoked after bean discovery to create AttributePermutation objects for each bean objectName discovered.
+	 *
+	 *
+	 * @param objectNames
+	 * @param connection
+	 * @param context
+     * @return
+     */
 	public static List<AttributePermutation> create(final ObjectName[] objectNames, final Connection connection, final Attribute context) {
 		// This method takes into account the beanInstanceFrom and valueInstanceFrom properties to create many AttributePermutations.
 		if (objectNames.length == 0) {
@@ -72,11 +79,12 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
             try {
                 connection.getServerConnection().getMBeanInfo(objName); // If this doesn't work, we won't add permutations to collect the bean info.
 
-                PluginData permutationPD = new PluginData(pd);
-                List<String> beanInstanceList = new ArrayList<String>();
                 StringBuilder beanInstance = new StringBuilder();
+				StringBuilder attributeInstance = new StringBuilder();
 
-                for (String propertyName : context.getBeanInstanceFrom()) {
+				// Resolve "InstanceFrom" from <Bean> blocks.
+				List<String> beanInstanceList = new ArrayList<String>();
+				for (String propertyName : context.getBeanInstanceFrom()) {
                     String propertyValue = objName.getKeyProperty(propertyName);
 
                     if (propertyValue == null) {
@@ -86,10 +94,23 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
                     }
                 }
 
+				// Resolve "InstanceFrom" for <Value> blocks.
+				List<String> attributeInstanceList = new ArrayList<String>();
+				for (String propertyName : context.getValueInstanceFrom()) {
+					String propertyValue = objName.getKeyProperty(propertyName);
+					if (propertyValue == null) {
+						logger.severe("no such property [" + propertyName + "] in ObjectName [" + objName + "] for attribute instance creation.");
+					} else {
+						attributeInstanceList.add(propertyValue);
+					}
+				}
+
+				// Static <connection> prefixing to the plugin instance.
                 if (connection.getConnectionInstancePrefix() != null) {
                     beanInstance.append(connection.getConnectionInstancePrefix());
                 }
 
+				// Static <bean> instance prefixing to the plugin instance.
                 if (context.getBeanInstancePrefix() != null) {
                     if (beanInstance.length() > 0) {
                         beanInstance.append("-");
@@ -97,41 +118,33 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
                     beanInstance.append(context.getBeanInstancePrefix());
                 }
 
+				// Prefix <bean> 'instanceFrom' to the plugin instance..
                 for (int i = 0; i < beanInstanceList.size(); i++) {
-                    if (i > 0) {
+                    if (beanInstance.length() > 0) {
                         beanInstance.append("-");
                     }
                     beanInstance.append(beanInstanceList.get(i));
                 }
-                permutationPD.setPluginInstance(beanInstance.toString());
 
-                ValueList vl = new ValueList(permutationPD);
-                vl.setType(context.getDataSet().getType());
-
-                List<String> attributeInstanceList = new ArrayList<String>();
-                for (String propertyName : context.getValueInstanceFrom()) {
-                    String propertyValue = objName.getKeyProperty(propertyName);
-                    if (propertyValue == null) {
-                        logger.severe("no such property [" + propertyName + "] in ObjectName [" + objName + "] for attribute instance creation.");
-                    } else {
-                        attributeInstanceList.add(propertyValue);
-                    }
-                }
-
-                StringBuilder attributeInstance = new StringBuilder();
+				// Prefix <value> 'instanceFrom' to the type instance.
                 if (context.getValueInstancePrefix() != null) {
                     attributeInstance.append(context.getValueInstancePrefix());
                 }
 
                 for (int i = 0; i < attributeInstanceList.size(); i++) {
-                    if (i > 0) {
+                    if (attributeInstance.length() > 0) {
                         attributeInstance.append("-");
                     }
                     attributeInstance.append(attributeInstanceList.get(i));
                 }
-                vl.setTypeInstance(attributeInstance.toString());
 
-                permutations.add(new AttributePermutation(objName, connection, context, permutationPD, vl));
+				// Construct a ValueList representative of this attribute.
+				ValueList vl = new ValueList(pd);
+				vl.setPluginInstance(beanInstance.toString());
+				vl.setType(context.getDataSet().getType());
+				vl.setTypeInstance(attributeInstance.toString());
+
+                permutations.add(new AttributePermutation(objName, connection, context, vl));
             } catch (Exception ex) {
                 logger.warning("Unable to obtain MBeanInfo for " + objName + " @ " + connection.getRawUrl() );
             }
@@ -185,7 +198,7 @@ public class AttributePermutation implements Callable<AttributePermutation>, Com
 
 	@Override
 	public int hashCode() {
-		return (connection.getHostname() + connection.getRawUrl() + objectName.toString() + pluginData.getSource() + valueList.getType()).hashCode();
+		return (connection.getHostname() + connection.getRawUrl() + objectName.toString() + valueList.getSource() + valueList.getType()).hashCode();
 	}
 
 	/**
