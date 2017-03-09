@@ -18,6 +18,8 @@ import javax.management.ObjectName;
 import javax.management.remote.JMXConnectionNotification;
 import javax.management.remote.JMXServiceURL;
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.net.MalformedURLException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -188,6 +190,9 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 								valueAttributes.add(getConfigString(valueChild));
 							} else if ("type".equalsIgnoreCase(valueChild.getKey())) {
 								valueDs = Collectd.getDS(getConfigString(valueChild));
+								if (valueDs == null) {
+									logger.severe("Unknown type, '" + getConfigString(valueChild) + "'. Please check your types.db");
+								}
 							} else if ("instanceprefix".equalsIgnoreCase(valueChild.getKey())) {
 								valueInstancePrefix = getConfigString(valueChild);
 							} else if ("instancefrom".equalsIgnoreCase(valueChild.getKey())) {
@@ -208,13 +213,15 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 								                                beanInstancePrefix, beanInstanceFrom));
 
 						// Make sure the number of attributes matches the number of datasource values.
-						if (valueDs.getDataSources().size() == valueAttributes.size()) {
+						if (valueDs != null && valueDs.getDataSources().size() == valueAttributes.size()) {
 							attributes.addAll(beanAttributes);
-						} else {
+						} else if (valueDs != null) {
 							logger.severe("The data set for bean '" + beanAlias + "' of type '"
 									              + valueDs.getType() + "' has " + valueDs.getDataSources().size()
 									              + " data sources, but there were " + valueAttributes.size()
 									              + " attributes configured. This bean will not be collected!");
+						} else {
+							logger.severe("Bean '" + beanAlias + "' will not be collected. Missing type definition.");
 						}
 					}
 				}
@@ -349,6 +356,9 @@ public class FastJMX implements CollectdConfigInterface, CollectdInitInterface, 
 			}
 		} catch (Throwable t) {
 			logger.severe("Unexpected Throwable: " + t);
+			StringWriter sw = new StringWriter();
+			t.printStackTrace(new PrintWriter(sw));
+			logger.severe(sw.toString());
 		}
 		return 0;
 	}
