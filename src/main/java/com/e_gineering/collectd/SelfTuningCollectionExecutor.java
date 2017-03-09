@@ -153,7 +153,7 @@ public class SelfTuningCollectionExecutor {
 		} else if (cycle.getCancelled() > 0) {
 			logger.warning("Failed to collect " + cycle.getCancelled() + " of " + cycle.getTotal() + " samples within read interval with " + threadPool.getCorePoolSize() + " threads.");
 		} else if (peek() != null && peek().getCancelled() > 0 && cycle.getCancelled() == 0)  {
-			logger.info("Successfully collected " + cycle.getTotal() + " samples with zero cancellations.");
+			logger.info("Successfully collected " + cycle.getTotal() + " samples within read interval with " + threadPool.getCorePoolSize() + " threads.");
 		}
 
 		if (cycle.triggerRecalculate(peek())) {
