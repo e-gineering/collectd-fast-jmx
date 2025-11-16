@@ -1,81 +1,153 @@
-# Important Note : 1.0.0 has a new package...
+# FastJMX - Low-Latency JMX Plugin for Collectd
 
-In the process of transferring this project to E-gineering, LLC (thanks, guys!) we've moved the maven coordinates a bit in order to start pushing
-artifacts to maven central.
+[![Build Status](https://travis-ci.org/egineering-llc/collectd-fast-jmx.svg?branch=master)](https://travis-ci.org/egineering-llc/collectd-fast-jmx)
+[![Maven Central](https://img.shields.io/badge/maven--central-1.0.0-blue.svg)](https://oss.sonatype.org/content/repositories/releases/com/e-gineering/collectd-fast-jmx/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 
-Note that all references to `org.collectd.FastJMX` have been changed to `com.e_gineering.collectd.FastJMX`, and the file name for jars has changed as 
-well.
+A high-performance, drop-in replacement for collectd's GenericJMX plugin that dramatically reduces metric collection latency through asynchronous operations and intelligent connection management.
 
-On the bright side, you can now pull pre-built artifacts of FastJMX out of the interwebs, from the [Maven central repository](https://oss.sonatype.org/content/repositories/releases/com/e-gineering/collectd-fast-jmx/)!
+## Table of Contents
 
-Or, for folks who want to use this some other way, here's the Maven coordinates:
-```
+- [Overview](#overview)
+- [Key Features](#key-features)
+- [Performance](#performance)
+- [Installation](#installation)
+  - [Maven Dependency](#maven-dependency)
+  - [Migration from GenericJMX](#migration-from-genericjmx)
+- [Configuration](#configuration)
+  - [Basic Configuration](#basic-configuration)
+  - [Configuration Options](#configuration-options)
+  - [Example Configuration](#example-configuration)
+- [Internal Metrics](#internal-metrics)
+- [Platform-Specific Guides](#platform-specific-guides)
+  - [JBoss EAP 6.x / AS 7.x](#jboss-eap-6x--as-7x)
+- [Debugging & Troubleshooting](#debugging--troubleshooting)
+- [Building from Source](#building-from-source)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Overview
+
+The default GenericJMX plugin from collectd is great for basic collection of small numbers of metrics, but if you need to collect many metrics from one or more hosts, the latency to read the metrics can quickly exceed your interval time. Remote collection from multiple hosts makes the problem even worse, and some configuration settings aren't exactly intuitive.
+
+**FastJMX solves these problems** while remaining configuration-compatible with the original GenericJMX plugin. With just a few small tweaks to your existing configuration, FastJMX will take over and deliver dramatically improved performance.
+
+## Key Features
+
+- **Asynchronous Bean Discovery**: Discovers matching beans at connection time and sets up listeners for bean additions/removals, keeping this work outside the read() loop
+- **Smart Reconnection Logic**: Reconnections are attempted with increasing backoff, outside the read loop, so healthy connections continue collecting metrics
+- **Concurrent Attribute Reading**: Each MBean attribute read is its own potential thread using JDK 1.5 Concurrent packages
+- **Interval Timeout Protection**: Read cycles have inflicted interval timeouts with queue clearing to eliminate backlogged metric reporting
+- **Timeslot Synchronization**: Each read() cycle is synchronized to the configured interval, preventing intermixed old and current values
+- **Custom Plugin Names**: Each `<Value>` can define a custom `PluginName` for better metric organization
+- **Automatic Hostname Detection**: Parses hostnames from complex service URLs like `service:jmx:rmi:///jndi/rmi://hostname:port/jmxrmi`
+- **Port-in-Hostname Support**: Optional `IncludePortInHostname` for separating multiple JVM instances on the same host
+- **Flexible Bean Ordering**: `<MBean>`, `<MXBean>`, and `<Connection>` blocks can appear in any order
+- **TabularData Support**: Can traverse `TabularData` to extract `CompositeData` values as tables or independent values
+
+## Performance
+
+In real-world collection scenarios, large-volume remote collections from multiple hosts over a VPN improved from **~2500ms to ~120ms** - over 20x faster!
+
+To see exactly what FastJMX is doing, add `CollectInternal true` to the plugin configuration to dispatch internal metrics (success, failure, error, latency, thread pool size) to collectd.
+
+## Installation
+
+### Important Note: Version 1.0.0 Package Changes
+
+In the process of transferring this project to E-gineering, LLC, the Maven coordinates changed to enable publishing to Maven Central.
+
+**Package name changed from:** `org.collectd.FastJMX`
+**Package name changed to:** `com.e_gineering.collectd.FastJMX`
+
+### Maven Dependency
+
+Pre-built artifacts are available from [Maven Central](https://oss.sonatype.org/content/repositories/releases/com/e-gineering/collectd-fast-jmx/):
+
+```xml
 <dependency>
-	<groupId>com.e-gineering</groupId>
-	<artifactId>collectd-fast-jmx</artifactId>
-	<version>1.0.0</version>
+    <groupId>com.e-gineering</groupId>
+    <artifactId>collectd-fast-jmx</artifactId>
+    <version>1.0.0</version>
 </dependency>
 ```
 
-## FastJMX - Low-latency JMX collectd plugin [![Build Status](https://travis-ci.org/egineering-llc/collectd-fast-jmx.svg?branch=master)](https://travis-ci.org/egineering-llc/collectd-fast-jmx)
+### Migration from GenericJMX
 
+Migrating from GenericJMX is straightforward:
 
-The default GenericJMX plugin from collectd is great for basic collection of small numbers of metrics, but if you need to collect many metrics from one 
-or more hosts, the latency to read the metrics can quickly exceed your interval time, and that's no fun. If you want to remotely collect metrics from
-multiple hosts you can forget about having short intervals, and some of the configuration settings aren't exactly obvious. 
-Example: What do you mean I have to include the hostname? I gave you the serviceUrl!
-
-### Introducing FastJMX!
-
-FastJMX does things differently than the GenericJMX plugin, but it does it in a manner that's configuration-compatible with the original plugin.
-(You read that right. There's just a few small tweaks to an existing configuration and FastJMX will take over)
-
-* FastJMX discovers all the matching beans when it first connects, then sets up listeners to the remote server so we get callbacks when any beans are added or removed from the server. This lets us identify all the permutations of the beans we need to read outside of the `read()` loop, which reduces `read()` latency, as well as internal GC stress and memory pressure.
-* Reconnections are attempted with increasing backoff sleep durations. Again, outside of the read loop, so that collecting metrics from connections which aren't failed continues to work.
-* Each attribute read from an mbean is it's own potential thread. The JDK 1.5 Concurrent packages are used to pool threads, inflict interval timeouts on the read cycle, and to make sure the queue is clear at the end of each `read()` invocation eliminating backlogged (lagged) metric reporting. If there isn't a metric polled in a timely manner, it's a dropped read.
-* Each `read()` cycle is timeslot protected (synchronized to the interval configured in collectd) so that old values and current values are *never* intermixed.
-* Each `<Value>` can define a custom `PluginName`, allowing segementation of reported metrics into different plugin buckets rather than everything being reported as "GenericJMX" or "FastJMX".
-* The port can be appended to the hostname using `IncludePortInHostname`. This is very helpful in separating data from multiple JVM instances on the same host without needing to specify an `InstancePrefix` on the `<Connection>`.
-* Hostnames are automatically detected from the serviceURL. If the serviceURL is a complex type, like `service:jmx:rmi:///jndi/rmi://hostname:port/jmxrmi`, FastJMX will still properly parse the hostname and port. The `Hostname` property (part of the standard GenericJMX configuration) value is still respected if present.
-* FastJMX doesn't require connections be defined after the beans. `<MBean>` (or `<MXBean>`, or just `<Bean>`) and `<Connection>` blocks can come in _any_ order.
-
-### So how much faster is it?
-
-In real-world collection scenarios, large volume remote collections from multiple hosts over a VPN improved from ~2500ms to collect (with GenericJMX) to ~120ms.
-
-If you really want to know what FastJMX is doing, add `CollectInternal true` to the plugin configuration. This tells FastJMX to dispatch internal metrics (success, failure, error, latency, thread pool size) to collectd.
+1. Add the path to the fast-jmx JAR in JVMARG
+2. Change `LoadPlugin "GenericJMX"` to `LoadPlugin "com.e_gineering.collectd.FastJMX"`
+3. Change `<Plugin "GenericJMX">` to `<Plugin "FastJMX">`
+4. Optionally remove `hostname` from `<Connection>` blocks (FastJMX auto-detects from the JMX URI)
 
 ## Configuration
-### Migrate from GenericJMX by...
 
-* Add the path to the fast-jmx jar in JVMARG
-* Include `LoadPlugin "com.e_gineering.collectd.FastJMX` in the `<Plugin "java">` block.
+### Basic Configuration
 
-### Additional FastJMX Options:
-
-* Remove the `hostname` from the `<Connection>` blocks. FastJMX will do it's best to detect it from the jmx URI if you don't include it. If parsing has an issue, you'll see a message in the log.
-* Asynch connection handling by default, but you can force synch by adding `Synchronous true` to a `<Connection>` block. If the url contains `remoting-jmx` which is interpreted as [JBoss Remoting](https://github.com/jbossas/remoting-jmx) then the synchronous wrapper is auto-magic-ally enabled.
-* Single-attribute `<Value>` blocks can use the syntax `<Value "attributeName">`. See the `<MBean "classes">` example below.
-* Include `PluginName` declarations in a `<Value>` block to change the plugin name it's reported as. Useful for grouping different MBeans as if they came from different applications, or subsystems.
-* Use `<MBean>` or `<MXBean>` or `<Bean>`.
-* `Composite` and `Table` can be used interchangeably within a `<Value>` block, and can be omitted (defaults to `false`).
-* `MaxThreads` can change the default maximum number of threads (512) to allow.
-* `CollectInternal` enables internal metrics FastJMX uses to be reported back to Collectd.
-* `TTL` can be used on a Connection to force a reconnect after `<value>` many seconds have elapsed. This can be handy if your server isn't correctly maintining mbeans after redployments. Keep in mind this is seconds, so '43200' = 12 hours.
-* FastJMX can now traverse `TabularData` to pull out `CompositeData` values as tables, or track independent values.
-
-```
+```xml
 LoadPlugin java
 <Plugin "java">
   JVMARG "-Djava.class.path=/path/to/collectd-api.jar:/path/to/collectd-fast-jmx.jar"
-  
+
+  LoadPlugin "com.e_gineering.collectd.FastJMX"
+
+  <Plugin "FastJMX">
+    <!-- Your MBean and Connection definitions here -->
+  </Plugin>
+</Plugin>
+```
+
+### Configuration Options
+
+FastJMX supports all GenericJMX options plus several enhancements:
+
+#### Global Plugin Options
+
+- **`MaxThreads`** - Maximum number of threads to allow (default: 512)
+- **`CollectInternal`** - Enable internal metrics collection (default: false)
+- **`LogLevel`** - Java log level: SEVERE, WARNING, INFO, FINE, FINER, FINEST (default: INFO)
+- **`ForceLoggingTo`** - Force all Java logging to specific collectd level (default: none)
+
+#### Connection Options
+
+- **`ServiceURL`** - JMX service URL (required)
+- **`Hostname`** - Override auto-detected hostname (optional)
+- **`IncludePortInHostname`** - Append port to hostname (default: false)
+- **`Username`** - JMX authentication username (optional)
+- **`Password`** - JMX authentication password (optional)
+- **`Synchronous`** - Force synchronous operation (default: false, auto-enabled for JBoss Remoting)
+- **`TTL`** - Force reconnect after N seconds (useful for servers that don't maintain MBeans after redeployments)
+- **`Collect`** - Reference to MBean definition(s) to collect
+
+#### Value Options
+
+- **`Type`** - Collectd type for the metric (required)
+- **`InstancePrefix`** - Prefix for the type instance (optional)
+- **`InstanceFrom`** - Use MBean property as instance name (optional)
+- **`PluginName`** - Override plugin name for this metric (optional, allows grouping different MBeans)
+- **`Composite`** / **`Table`** - Read as composite/table data (default: false, both terms are interchangeable)
+
+#### Simplified Syntax
+
+- **Single-attribute Values**: Use `<Value "attributeName">` for brevity
+- **Composite/Table**: `Composite` and `Table` keywords can be used interchangeably
+- **Bean Tags**: Use `<MBean>`, `<MXBean>`, or `<Bean>` - they're all equivalent
+
+### Example Configuration
+
+```xml
+LoadPlugin java
+<Plugin "java">
+  JVMARG "-Djava.class.path=/path/to/collectd-api.jar:/path/to/collectd-fast-jmx.jar"
+
   LoadPlugin "com.e_gineering.collectd.FastJMX"
 
   <Plugin "FastJMX">
 
     MaxThreads 256
     CollectInternal true
-  
+
     <MBean "classes">
       ObjectName "java.lang:type=ClassLoading"
 
@@ -86,7 +158,7 @@ LoadPlugin java
       </Value>
     </MBean>
 
-    # Time spent by the JVM compiling or optimizing.
+    # Time spent by the JVM compiling or optimizing
     <MBean "compilation">
       ObjectName "java.lang:type=Compilation"
 
@@ -106,9 +178,9 @@ LoadPlugin java
       <Value "CollectionTime">
         Type "total_time_in_ms"
         InstancePrefix "collection_time"
-      	PluginName "JVM"
+        PluginName "JVM"
       </Value>
-      
+
       # Reads the Par Eden Space data as a composite table
       <Value "LastGcInfo.memoryUsageAfterGc.Par Eden Space">
         Type "java_memory"
@@ -116,16 +188,16 @@ LoadPlugin java
         InstancePrefix "pool-eden-after"
         PluginName "JVM"
       </Value>
-      
+
       # Reads only the "used" portion of the Par Eden Space
       <Value "LastGcInfo.memoryUsageAfterGc.Par Eden Space.used">
-        type "java_memory"
+        Type "java_memory"
         InstancePrefix "pool-eden-after-used"
         PluginName "JVM"
       </Value>
     </MBean>
 
-    # Memory usage by memory pool.
+    # Memory usage by memory pool
     <MBean "memory_pool">
       ObjectName "java.lang:type=MemoryPool,*"
       InstancePrefix "memory_pool-"
@@ -138,7 +210,6 @@ LoadPlugin java
       </Value>
     </MBean>
 
-
     <Connection>
       ServiceURL "service:jmx:rmi:///jndi/rmi://host1:8098/jmxrmi"
       IncludePortInHostname true
@@ -147,6 +218,7 @@ LoadPlugin java
       Collect "garbage_collector"
       Collect "memory_pool"
     </Connection>
+
     <Connection>
       ServiceURL "service:jmx:rmi:///jndi/rmi://host1:8198/jmxrmi"
       IncludePortInHostname true
@@ -155,6 +227,7 @@ LoadPlugin java
       Collect "garbage_collector"
       Collect "memory_pool"
     </Connection>
+
     <Connection>
       ServiceURL "service:jmx:rmi:///jndi/rmi://host2:8398/jmxrmi"
       IncludePortInHostname true
@@ -162,25 +235,32 @@ LoadPlugin java
       Collect "compilation"
       Collect "garbage_collector"
       Collect "memory_pool"
-      # Force the connection to reset every 4 hours.
+      # Force the connection to reset every 4 hours
       TTL 14400
     </Connection>
 
   </Plugin>
 </Plugin>
-  ```
+```
 
 ## Internal Metrics
-FastJMX collects some internal metrics that it uses to estimate an efficient pool size.
-If you enable internal metric collection (see above configuration options) and have the following types defined in types.db, the data will be submitted to collectd.
+
+FastJMX collects internal metrics to estimate efficient pool size and monitor performance. Enable with `CollectInternal true` in the plugin configuration.
+
+### Required types.db Definitions
+
+Add these to your `types.db` file:
 
 ```
 fastjmx_cycle      value:GAUGE:0:U
 fastjmx_latency    value:GAUGE:0:U
 ```
 
-Once you've got collectd keeping your data, you may find these Collection3 graph configurations useful...
-```
+### Collection3 Graph Configurations
+
+Useful graph configurations for visualizing FastJMX metrics:
+
+```xml
 <Type fastjmx_cycle>
   Module GenericStacked
   DataSources value
@@ -197,53 +277,62 @@ Once you've got collectd keeping your data, you may find these Collection3 graph
   Color weight 0000ff
   Stacking on
 </Type>
+
 <Type fastjmx_latency>
   Module GenericStacked
   DataSources value
   RRDTitle "FastJMX Latency ({plugin_instance})"
   RRDFormat "%6.1lf"
-  DSName "interval Interval" 
+  DSName "interval Interval"
   DSName "duration Latency "
-  Order interval duration 
+  Order interval duration
   Color duration ffb000
   Color interval 00e000
   Stacking off
 </Type>
 ```
 
-## JBoss EAP 6.x, AS 7.x
-The JBoss remoting JMX provider has been tested with EAP 6.x, and should work properly with AS 7.x as well.
-As part of getting this to work, some 'workarounds' are included in the FastJMX code-base, which may also apply to other JMX protocol providers. In the case of the JBoss jmx remoting, appropriate bugs and feature requests have been filed.
+## Platform-Specific Guides
 
-### JBoss EAP 6 Classpath
-Here's an example JVMArg that works with jboss-eap-6.1
-```
+### JBoss EAP 6.x / AS 7.x
+
+The JBoss Remoting JMX provider has been tested with EAP 6.x and should work with AS 7.x. FastJMX includes workarounds for some JBoss-specific behaviors, and appropriate bugs/feature requests have been filed with JBoss.
+
+#### Classpath Configuration
+
+Example JVMArg for JBoss EAP 6.1:
+
+```xml
 <Plugin java>
-	JVMArg "-Djava.class.path=/usr/share/collectd/java/collectd-api.jar:/usr/lib/jvm/java-7-oracle/lib/jconsole.jar:/usr/lib/jvm/java-7-oracle/lib/tools.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/remoting-jmx/main/remoting-jmx-1.1.0.Final-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/remoting3/main/jboss-remoting-3.2.16.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/logging/main/jboss-logging-3.1.2.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/xnio/main/xnio-api-3.0.7.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/xnio/nio/main/xnio-nio-3.0.7.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/sasl/main/jboss-sasl-1.0.3.Final-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/marshalling/main/jboss-marshalling-1.3.18.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/marshalling/river/main/jboss-marshalling-river-1.3.18.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/as/cli/main/jboss-as-cli-7.2.1.Final-redhat-10.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/staxmapper/main/staxmapper-1.1.0.Final-redhat-2.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/as/protocol/main/jboss-as-protocol-7.2.1.Final-redhat-10.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/dmr/main/jboss-dmr-1.1.6.Final-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/as/controller-client/main/jboss-as-controller-client-7.2.1.Final-redhat-10.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/threads/main/jboss-threads-2.1.0.Final-redhat-1.jar:/usr/share/collectd/java/collectd-fast-jmx-1.0-SNAPSHOT.jar"
-	LoadPlugin "com.e_gineering.collectd.FastJMX"
-	
-	...
-	
+  JVMArg "-Djava.class.path=/usr/share/collectd/java/collectd-api.jar:/usr/lib/jvm/java-7-oracle/lib/jconsole.jar:/usr/lib/jvm/java-7-oracle/lib/tools.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/remoting-jmx/main/remoting-jmx-1.1.0.Final-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/remoting3/main/jboss-remoting-3.2.16.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/logging/main/jboss-logging-3.1.2.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/xnio/main/xnio-api-3.0.7.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/xnio/nio/main/xnio-nio-3.0.7.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/sasl/main/jboss-sasl-1.0.3.Final-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/marshalling/main/jboss-marshalling-1.3.18.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/marshalling/river/main/jboss-marshalling-river-1.3.18.GA-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/as/cli/main/jboss-as-cli-7.2.1.Final-redhat-10.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/staxmapper/main/staxmapper-1.1.0.Final-redhat-2.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/as/protocol/main/jboss-as-protocol-7.2.1.Final-redhat-10.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/dmr/main/jboss-dmr-1.1.6.Final-redhat-1.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/as/controller-client/main/jboss-as-controller-client-7.2.1.Final-redhat-10.jar:/opt/appserver/jboss-eap-6.1/modules/system/layers/base/org/jboss/threads/main/jboss-threads-2.1.0.Final-redhat-1.jar:/usr/share/collectd/java/collectd-fast-jmx-1.0.0.jar"
+  LoadPlugin "com.e_gineering.collectd.FastJMX"
+
+  ...
+
 </Plugin>
 ```
 
-To connect as an administrator you shoudln't need to change anything in the jboss configuration.
-The following Connection block should work in this scenario.
-```
-<Connection>
-	ServiceURL "service:jmx:remoting-jmx://yourhostname:9999"
-	Username "admin"
-	Password "aR3allyStrongP@sswordThatOthersCanSee"
-	ttl 300
-	IncludePortInHostname false
-	Collect "classes"
-	...
+#### Administrator Connection
 
+To connect as an administrator (no JBoss configuration changes needed):
+
+```xml
+<Connection>
+  ServiceURL "service:jmx:remoting-jmx://yourhostname:9999"
+  Username "admin"
+  Password "yourAdminPassword"
+  TTL 300
+  IncludePortInHostname false
+  Collect "classes"
+  ...
 </Connection>
 ```
 
-To connect as a normal application user, and expose JMX over the 'remoting' port in EAP 6.1, your domain (or standalone) configuration should include `use-management-endpoint="false"`, like so:
-```
+#### Application User Connection
+
+To connect as a normal application user over the remoting port, update your domain (or standalone) configuration with `use-management-endpoint="false"`:
+
+```xml
 <subsystem xmlns="urn:jboss:domain:jmx:1.2">
   <expose-resolved-model/>
   <expose-expression-model/>
@@ -251,61 +340,127 @@ To connect as a normal application user, and expose JMX over the 'remoting' port
 </subsystem>
 ```
 
-This changes the port from 9999 (the default management port) to 4447 (the remoting port) and requires an *application* user rather than an *administration* user.
+This changes the port from 9999 (management) to 4447 (remoting) and requires an *application* user rather than an *administration* user.
 
-You can add the application user using the 'add-user' script from the JBoss Bin dir:
-```
-$JBOSS_HOME/bin/add-user.sh --silent -a --user jmx --password <yourpasshere>
+Add the application user:
+
+```bash
+$JBOSS_HOME/bin/add-user.sh --silent -a --user jmx --password yourpassword
 ```
 
-Then in your Connection block, you can use:
-```
+Connection configuration:
+
+```xml
 <Connection>
-	ServiceURL "service:jmx:remoting-jmx://yourhostname:4447"
-	Username "jmx"
-	Password "!amUnprivi1eged"
-	ttl 300
-	IncludePortInHostname false
-	Collect "classes"
-	...
+  ServiceURL "service:jmx:remoting-jmx://yourhostname:4447"
+  Username "jmx"
+  Password "yourpassword"
+  TTL 300
+  IncludePortInHostname false
+  Collect "classes"
+  ...
 </Connection>
 ```
 
-Which exposes a non-privileged username / password.
-
-*WARNING WARNING WARNING* This Unprivileged user will be able to invoke MBeans via JMX. *WARNING WARNING WARNING*\
+**WARNING**: This unprivileged user will be able to invoke MBeans via JMX. Ensure appropriate security measures are in place.
 
 ## Debugging & Troubleshooting
 
-There are a couple additional configuration options worth nothing, which are helpful if you're troubleshooting an issue.
+FastJMX provides additional configuration options for troubleshooting:
 
-* `LogLevel` sets the Plugins internal Java log level. By default this is 'INFO'. Meaning any log message generated internall that's INFO or greater will be logged to Collectd at the approprate (corresponding) Collectd Log Level...
-* `ForceLoggingTo` Lets you override the normal behavior of mapping Java log levels to collectd log levels, and forces all java log output to be logged at this collectd level.
+### Log Level Configuration
 
-So under normal operation, things logged in java as SEVERE are logged at ERROR in Collectd, etc.
+- **`LogLevel`** - Sets the plugin's internal Java log level (default: INFO)
+  - Valid values: SEVERE, WARNING, INFO, FINE, FINER, FINEST
+  - Messages at this level or higher are logged to collectd at corresponding levels
 
-Setting `ForceLoggingTo "INFO"` will make all Java logging output log in Collectd at INFO.
+- **`ForceLoggingTo`** - Overrides normal log level mapping and forces all Java log output to a specific collectd level
+  - Useful when you want detailed FastJMX logs without changing collectd's global log level
 
-If your normal Collectd configuration sets the collectd log level to WARNING, but you want to get 'INFO' from the FastJMX plugin, you can do this:
+### Examples
 
-```
+**Example 1**: Get INFO-level logs from FastJMX when collectd is set to WARNING:
+
+```xml
 <Plugin "FastJMX">
    LogLevel "INFO"
    ForceLoggingTo "WARNING"
-
    ...
 </Plugin>
 ```
 
-If you'd like to see FINE logging from FastJMX use:
+**Example 2**: Enable verbose FINE logging from FastJMX:
 
-```
+```xml
 <Plugin "FastJMX">
    LogLevel "FINE"
    ForceLoggingTo "WARNING"
+   ...
 </Plugin>
 ```
 
-Basically, you're setting the java logger write any messages >= `FINE`, and to write those messages as Collectd `WARNING` messages.
-It gives a little more control over the verbosity of this single plugin.
+This configuration writes all Java log messages at FINE level or higher as collectd WARNING messages, giving you fine-grained control over plugin verbosity.
 
+## Building from Source
+
+### Prerequisites
+
+- Java JDK 1.5 or higher
+- Maven 3.0.1 or higher
+
+### Build Steps
+
+```bash
+# Clone the repository
+git clone https://github.com/egineering-llc/collectd-fast-jmx.git
+cd collectd-fast-jmx
+
+# Build the project
+mvn clean package
+
+# The JAR will be created in target/collectd-fast-jmx-1.0.0.jar
+```
+
+### Building with GPG Signing (for releases)
+
+```bash
+mvn clean package -P eg.oss
+```
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+
+### Development
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+### Issue Reporting
+
+Please report issues at: https://github.com/egineering-llc/collectd-fast-jmx/issues
+
+## License
+
+Copyright 2014 E-Gineering, LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+---
+
+**Maintained by**: E-gineering, LLC
+**Website**: http://www.e-gineering.com
+**Issues**: https://github.com/egineering-llc/collectd-fast-jmx/issues
